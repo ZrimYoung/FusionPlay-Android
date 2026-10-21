@@ -21,7 +21,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::MiPlayDeviceType;
 use crate::media::EventEmitter;
-use crate::protocol::CONTROL_PORT;
 
 pub const LYRA_COMMAND_PORT: u16 = 55_982;
 
@@ -76,8 +75,10 @@ enum PbValue<'a> {
     Fixed,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn start_lyra_server(
     local_ip: Ipv4Addr,
+    control_port: u16,
     lyra_device_id: String,
     receiver_name: String,
     platform: String,
@@ -105,6 +106,7 @@ pub fn start_lyra_server(
             }));
             run_server(
                 socket,
+                control_port,
                 lyra_device_id,
                 receiver_name,
                 platform,
@@ -119,8 +121,10 @@ pub fn start_lyra_server(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_server(
     socket: UdpSocket,
+    control_port: u16,
     lyra_device_id: String,
     receiver_name: String,
     platform: String,
@@ -194,6 +198,7 @@ fn run_server(
             let response = match handle_payload(
                 payload,
                 session,
+                control_port,
                 &lyra_device_id,
                 &receiver_name,
                 &platform,
@@ -272,6 +277,7 @@ fn retransmit_due(
 fn handle_payload(
     frame: &[u8],
     session: &mut PeerSession,
+    control_port: u16,
     lyra_device_id: &str,
     receiver_name: &str,
     platform: &str,
@@ -373,7 +379,8 @@ fn handle_payload(
                         .and_then(|message| bytes_field(message, 2).ok().flatten())
                         .and_then(|value| std::str::from_utf8(value).ok())
                         .unwrap_or_default();
-                    let (response, peer_port) = build_connect_success_response(&logical, session)?;
+                    let (response, peer_port) =
+                        build_connect_success_response(&logical, session, control_port)?;
                     if let Some((client_channel_id, server_channel_id, _)) = peer_port {
                         session.client_channel_id = Some(client_channel_id);
                         session.server_channel_id = Some(server_channel_id);
@@ -656,9 +663,10 @@ type PeerPortNegotiation = Option<(u64, u64, u16)>;
 fn build_connect_success_response(
     logical: &LogicalFrame,
     session: &PeerSession,
+    control_port: u16,
 ) -> Result<(Vec<u8>, PeerPortNegotiation)> {
     let (connect_response, peer_port) = match logical.message.as_deref() {
-        Some(request) => build_logical_connect_response(request)?,
+        Some(request) => build_logical_connect_response(request, control_port)?,
         None => (Vec::new(), None),
     };
     let plain = pb_join([pb_varint(1, 2), pb_bytes(3, &connect_response)]);
@@ -680,7 +688,10 @@ fn build_connect_success_response(
 /// until it receives `ResponseOfPeerPort` in UserInfo field 11.  The resulting
 /// timeout is reported as 52008 and SystemUI removes the otherwise correctly
 /// typed PC route.
-fn build_logical_connect_response(request: &[u8]) -> Result<(Vec<u8>, PeerPortNegotiation)> {
+fn build_logical_connect_response(
+    request: &[u8],
+    control_port: u16,
+) -> Result<(Vec<u8>, PeerPortNegotiation)> {
     let Some(request_user_info) = bytes_field(request, 3)? else {
         return Ok((Vec::new(), None));
     };
@@ -700,7 +711,7 @@ fn build_logical_connect_response(request: &[u8]) -> Result<(Vec<u8>, PeerPortNe
     let response_peer_port = pb_join([
         pb_varint(1, client_channel_id),
         pb_varint(2, server_channel_id),
-        pb_varint(3, u64::from(CONTROL_PORT)),
+        pb_varint(3, u64::from(control_port)),
         pb_varint(5, 1),
         pb_varint(6, 0),
     ]);
@@ -727,7 +738,7 @@ fn build_logical_connect_response(request: &[u8]) -> Result<(Vec<u8>, PeerPortNe
     let response = pb_join([pb_varint(1, 0), pb_bytes(2, &response_user_info)]);
     Ok((
         response,
-        Some((client_channel_id, server_channel_id, CONTROL_PORT)),
+        Some((client_channel_id, server_channel_id, control_port)),
     ))
 }
 
@@ -973,8 +984,13 @@ mod tests {
             session_key: Some([3_u8; 32]),
             ..PeerSession::default()
         };
-        let (response, peer_port) = build_connect_success_response(&logical, &session).unwrap();
-        assert_eq!(peer_port, Some((32, 1, CONTROL_PORT)));
+        // Exercise the complete encrypted response with an actual non-default
+        // listener, so a hard-coded 8899 cannot silently return to the wire.
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let control_port = listener.local_addr().unwrap().port();
+        let (response, peer_port) =
+            build_connect_success_response(&logical, &session, control_port).unwrap();
+        assert_eq!(peer_port, Some((32, 1, control_port)));
         let (_, body) = transport_payload(&response).unwrap();
         let parsed = parse_logical_frame(body, session.session_key.as_ref()).unwrap();
         assert_eq!(parsed.inner_type, 2);
@@ -995,7 +1011,7 @@ mod tests {
         assert_eq!(varint_field(response_peer_port, 2).unwrap(), Some(1));
         assert_eq!(
             varint_field(response_peer_port, 3).unwrap(),
-            Some(u64::from(CONTROL_PORT))
+            Some(u64::from(control_port))
         );
         assert_eq!(varint_field(response_peer_port, 5).unwrap(), Some(1));
         assert_eq!(varint_field(response_peer_port, 6).unwrap(), Some(0));

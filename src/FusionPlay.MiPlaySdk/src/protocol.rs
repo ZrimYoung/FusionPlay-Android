@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use crate::MiPlayDeviceType;
 use crate::media::{EventEmitter, PlaybackGate, StreamKeys, spawn_rtsp_receiver};
 
-pub(crate) const CONTROL_PORT: u16 = 8899;
+const CONTROL_PORT: u16 = 8899;
 const PROTOCOL_VERSION: &str = "2.1.5071614";
 
 const GET_VERSION: u8 = 0x36;
@@ -856,6 +856,16 @@ fn empty_media_info_notification() -> Vec<u8> {
     ]
 }
 
+fn bind_control_listener(local_ip: Ipv4Addr, preferred_port: u16) -> std::io::Result<TcpListener> {
+    match TcpListener::bind((local_ip, preferred_port)) {
+        // Android TVs may already run Xiaomi's system receiver on port 8899.
+        // Keep the allocated listener open so no other process can claim its
+        // port between selection and the Lyra peer-port negotiation.
+        Err(error) if error.kind() == ErrorKind::AddrInUse => TcpListener::bind((local_ip, 0)),
+        result => result,
+    }
+}
+
 pub fn start_control_server(
     local_ip: Ipv4Addr,
     identity: DeviceIdentity,
@@ -863,10 +873,22 @@ pub fn start_control_server(
     volume_percent: Arc<AtomicU32>,
     shutdown: Arc<AtomicBool>,
     events: EventEmitter,
-) -> Result<ControlHub> {
-    let listener = TcpListener::bind(SocketAddr::from((local_ip, CONTROL_PORT)))
+) -> Result<(ControlHub, u16)> {
+    let listener = bind_control_listener(local_ip, CONTROL_PORT)
         .with_context(|| format!("bind Xiaomi MiPlay control socket {local_ip}:{CONTROL_PORT}"))?;
+    let control_port = listener
+        .local_addr()
+        .context("read MiPlay control address")?
+        .port();
     listener.set_nonblocking(true)?;
+    events(json!({
+        "event": "control_listener_ready",
+        "protocol": "xiaomi_miplay",
+        "address": local_ip.to_string(),
+        "port": control_port,
+        "preferred_port": CONTROL_PORT,
+        "port_fallback": control_port != CONTROL_PORT,
+    }));
     let hub = ControlHub::new(volume_percent);
     let server_hub = hub.clone();
     thread::Builder::new()
@@ -963,7 +985,7 @@ pub fn start_control_server(
             }
         })
         .context("spawn Xiaomi MiPlay control listener")?;
-    Ok(hub)
+    Ok((hub, control_port))
 }
 
 #[derive(Clone, Copy)]
@@ -2332,16 +2354,17 @@ mod tests {
         ControlCipher, ControlHub, DeviceIdentity, FIRST_ENCRYPTED_NOTIFICATION_SEQUENCE,
         GET_MEDIA_INFO, MOBILE_AUDIO_STREAMING_MODE_ACK, MediaAction, MediaControlOutcome, NOTIFY,
         SAFETY_AUTH, SAFETY_AUTH_ACK, SAFETY_INFO, SAFETY_INFO_ACK, allocate_notification_sequence,
-        build_device_info, decode_playback_state, decode_volume_percent, emit_media_info,
-        empty_media_info_notification, encode_get_volume_ack, encode_set_volume_ack,
-        generate_auth_key, hmac_sha256_hex, parse_json_payload, parse_wfd_url, read_frame,
-        run_session, unwrap_payload, volume_notification, wrap_payload, write_frame,
+        bind_control_listener, build_device_info, decode_playback_state, decode_volume_percent,
+        emit_media_info, empty_media_info_notification, encode_get_volume_ack,
+        encode_set_volume_ack, generate_auth_key, hmac_sha256_hex, parse_json_payload,
+        parse_wfd_url, read_frame, run_session, unwrap_payload, volume_notification, wrap_payload,
+        write_frame,
     };
     use crate::MiPlayDeviceType;
     use crate::media::{EventEmitter, StreamKeys};
     use serde_json::Value;
     use std::io::{ErrorKind, Read};
-    use std::net::{SocketAddr, TcpListener, TcpStream};
+    use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Arc, Mutex, mpsc};
     use std::thread;
@@ -2349,6 +2372,29 @@ mod tests {
 
     fn control_notification_sequence() -> Arc<AtomicU32> {
         Arc::new(AtomicU32::new(FIRST_ENCRYPTED_NOTIFICATION_SEQUENCE + 1))
+    }
+
+    #[test]
+    fn occupied_control_port_falls_back_to_a_connectable_listener() {
+        let occupied = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let preferred = occupied.local_addr().unwrap().port();
+        let fallback = bind_control_listener(Ipv4Addr::LOCALHOST, preferred).unwrap();
+        let fallback_address = fallback.local_addr().unwrap();
+        assert_ne!(fallback_address.port(), preferred);
+        let _client = TcpStream::connect(fallback_address).unwrap();
+        let _accepted = fallback.accept().unwrap();
+        // The original service is still listening and remains reachable.
+        let _original_client = TcpStream::connect(occupied.local_addr().unwrap()).unwrap();
+        let _original_accepted = occupied.accept().unwrap();
+    }
+
+    #[test]
+    fn available_control_port_is_preserved() {
+        let reservation = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let preferred = reservation.local_addr().unwrap().port();
+        drop(reservation);
+        let listener = bind_control_listener(Ipv4Addr::LOCALHOST, preferred).unwrap();
+        assert_eq!(listener.local_addr().unwrap().port(), preferred);
     }
 
     #[test]

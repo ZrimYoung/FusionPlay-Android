@@ -10,6 +10,13 @@ plugins {
 
 val repositoryRoot = layout.projectDirectory.dir("../../..")
 val generatedNativeLibs = layout.buildDirectory.dir("generated/fusionPlayJniLibs")
+val supportedNativeAbis = listOf("armeabi-v7a", "arm64-v8a", "x86_64")
+val nativeAbis = providers.gradleProperty("fusionPlayAbis").orNull
+    ?.split(',')?.map(String::trim)
+    ?: supportedNativeAbis
+require(nativeAbis.isNotEmpty() && nativeAbis.all { it in supportedNativeAbis }) {
+    "fusionPlayAbis must contain supported Android ABIs: $supportedNativeAbis"
+}
 
 android {
     namespace = "com.fusionplay.android"
@@ -23,13 +30,14 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.fusionplay.android"
+        applicationId = providers.gradleProperty("fusionPlayApplicationId")
+            .getOrElse("com.fusionplay.android")
         minSdk = flutter.minSdkVersion
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         ndk {
-            abiFilters += setOf("armeabi-v7a", "arm64-v8a", "x86_64")
+            abiFilters += nativeAbis
         }
     }
 
@@ -98,7 +106,6 @@ tasks.withType<Test>().configureEach {
     jvmArgs("-XX:+UseSerialGC")
 }
 
-val nativeAbis = listOf("armeabi-v7a", "arm64-v8a", "x86_64")
 val nativeTriples = mapOf(
     "armeabi-v7a" to "arm-linux-androideabi",
     "arm64-v8a" to "aarch64-linux-android",

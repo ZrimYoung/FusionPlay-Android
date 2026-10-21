@@ -6,6 +6,7 @@
 **/target/
 **/.cxx/
 /.tooling/
+/.ci/
 /artifacts/
 
 # Local IDE and generated metadata

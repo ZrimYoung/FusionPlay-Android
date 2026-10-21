@@ -63,6 +63,14 @@ Rust 模块可分别运行 `cargo test` 和 `cargo clippy`。Android 原生库�
 
 当前 Release 配置在没有私有签名配置时使用 Android 调试签名，公开发布商店版本前应替换为自己的安全签名流程，且不得提交密钥文件。
 
+## 小米电视端口冲突修复
+
+部分小米电视的系统接收器已经监听 TCP 8899。FusionPlay 现在优先使用该端口；仅当端口被占用时，由系统分配空闲端口，并在 Lyra 的 PeerPort 握手响应中返回实际监听端口。原有系统接收器无需停用。
+
+`fix/miplay-port-conflict` 分支提供 GitHub Actions 自动构建，也可在 Actions 中手动运行 **Build Android port fix**。成功后可下载 `FusionPlay-1.2.4-portfix-debug` APK 构建产物，保留 30 天。测试版包名为 `com.fusionplay.android.portfix`，可与原版同时安装；验证时请关闭原版 FusionPlay，避免 AirPlay 和 DLNA 端口冲突。
+
+默认构建仍包含全部三种 ABI。定向调试时可通过 Gradle 属性 `fusionPlayAbis` 指定逗号分隔的 ABI，并通过 `fusionPlayApplicationId` 指定独立测试包名。
+
 ## 协议与商标说明
 
 本项目仅为网络互操作实现，不包含或调用小米、Apple 或其他厂商的私有运行库、账号服务或设备证书。AirPlay、Apple、小米、妙播、DLNA 等名称及商标归各自权利人所有，本项目与这些厂商没有隶属或官方认证关系。

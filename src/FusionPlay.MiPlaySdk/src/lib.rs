@@ -254,7 +254,7 @@ impl MiPlayReceiver {
             platform: config.platform.clone(),
             device_type: config.device_type,
         };
-        let hub = start_control_server(
+        let (hub, control_port) = start_control_server(
             config.local_ip,
             identity,
             config.output_device.clone(),
@@ -264,6 +264,7 @@ impl MiPlayReceiver {
         )?;
         let lyra_control = match start_lyra_server(
             config.local_ip,
+            control_port,
             config.identity.lyra_instance_id.clone(),
             config.name.clone(),
             config.platform.clone(),
@@ -314,6 +315,7 @@ impl MiPlayReceiver {
             "name": config.name,
             "address": config.local_ip.to_string(),
             "port": lyra_control.port(),
+            "control_port": control_port,
             "interface": config.interface_name,
             "platform": config.platform,
             "device_type": config.device_type.protocol_value(),
