@@ -32,6 +32,8 @@ android {
     defaultConfig {
         applicationId = providers.gradleProperty("fusionPlayApplicationId")
             .getOrElse("com.fusionplay.android")
+        resValue("string", "fusionplay_launcher_label",
+            if (applicationId == "com.fusionplay.android.portfix") "FusionPlay 修复版" else "FusionPlay")
         minSdk = flutter.minSdkVersion
         targetSdk = 36
         versionCode = flutter.versionCode
