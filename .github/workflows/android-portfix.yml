@@ -29,6 +29,21 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Install Android SDK command-line tools
+        shell: bash
+        run: |
+          sdk_root="$RUNNER_TEMP/android-sdk"
+          curl --fail --location --retry 3 \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+            --output "$RUNNER_TEMP/android-command-tools.zip"
+          echo "d313adb7aedccf6cf0cfca51ec180f0059f5f8f8  $RUNNER_TEMP/android-command-tools.zip" | sha1sum --check
+          mkdir -p "$sdk_root/cmdline-tools"
+          unzip -q "$RUNNER_TEMP/android-command-tools.zip" -d "$sdk_root/cmdline-tools"
+          mv "$sdk_root/cmdline-tools/cmdline-tools" "$sdk_root/cmdline-tools/latest"
+          echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
+          echo "$sdk_root/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
       - name: Install Flutter 3.32.8
         shell: bash
         run: |
@@ -49,7 +64,7 @@ jobs:
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
           cargo install cargo-ndk --version 4.1.2 --locked
           printf 'y\n%.0s' {1..100} | sdkmanager --licenses > /dev/null
-          sdkmanager 'platforms;android-36' 'build-tools;34.0.0' 'ndk;28.2.13676358'
+          sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;34.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
 
       - name: Test MiPlay SDK
