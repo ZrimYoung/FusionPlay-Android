@@ -1272,6 +1272,14 @@ class FusionPlayRuntime(
         private val MIPLAY_DIAGNOSTIC_FIELDS = setOf(
             "source", "destination", "service", "success", "unicast",
             "address_family", "profile", "port", "control_port", "code", "message",
+            "stage", "state", "playing", "raw_state", "session_active",
+            "group_target_delay_ms", "queue_delay_ms", "output_latency_ms",
+            "output_callback_frames", "output_sample_rate", "synchronization_mode",
+            "time_offset_us", "clock_synchronized", "server_minus_local_us",
+            "target_server_minus_local_us", "phase_error_us", "frequency_ppm",
+            "round_trip_us", "latency_ms", "arrival_residual_ms", "media_generation",
+            "front_pts_us", "server_now_us", "schedule_error_us", "buffered_frames",
+            "timed_playback_started",
         )
         private const val METHOD_CHANNEL = "com.fusionplay.android/runtime"
         private const val EVENT_CHANNEL = "com.fusionplay.android/runtime_events"

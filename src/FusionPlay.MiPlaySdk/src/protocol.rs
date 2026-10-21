@@ -873,9 +873,14 @@ pub fn start_control_server(
     volume_percent: Arc<AtomicU32>,
     shutdown: Arc<AtomicBool>,
     events: EventEmitter,
+    preferred_control_port: Option<u16>,
 ) -> Result<(ControlHub, u16)> {
-    let listener = bind_control_listener(local_ip, CONTROL_PORT)
-        .with_context(|| format!("bind Xiaomi MiPlay control socket {local_ip}:{CONTROL_PORT}"))?;
+    let preferred_port = preferred_control_port
+        .filter(|port| *port != 0)
+        .unwrap_or(CONTROL_PORT);
+    let listener = bind_control_listener(local_ip, preferred_port).with_context(|| {
+        format!("bind Xiaomi MiPlay control socket {local_ip}:{preferred_port}")
+    })?;
     let control_port = listener
         .local_addr()
         .context("read MiPlay control address")?
@@ -886,8 +891,8 @@ pub fn start_control_server(
         "protocol": "xiaomi_miplay",
         "address": local_ip.to_string(),
         "port": control_port,
-        "preferred_port": CONTROL_PORT,
-        "port_fallback": control_port != CONTROL_PORT,
+        "preferred_port": preferred_port,
+        "port_fallback": control_port != preferred_port,
     }));
     let hub = ControlHub::new(volume_percent);
     let server_hub = hub.clone();
@@ -2386,6 +2391,20 @@ mod tests {
         // The original service is still listening and remains reachable.
         let _original_client = TcpStream::connect(occupied.local_addr().unwrap()).unwrap();
         let _original_accepted = occupied.accept().unwrap();
+    }
+
+    #[test]
+    fn fallback_control_port_can_be_reused_on_restart() {
+        let occupied = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let first =
+            bind_control_listener(Ipv4Addr::LOCALHOST, occupied.local_addr().unwrap().port())
+                .unwrap();
+        let cached_port = first.local_addr().unwrap().port();
+        drop(first);
+        let restarted = bind_control_listener(Ipv4Addr::LOCALHOST, cached_port).unwrap();
+        assert_eq!(restarted.local_addr().unwrap().port(), cached_port);
+        let _client = TcpStream::connect(restarted.local_addr().unwrap()).unwrap();
+        let _accepted = restarted.accept().unwrap();
     }
 
     #[test]

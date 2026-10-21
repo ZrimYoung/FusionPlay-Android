@@ -783,13 +783,30 @@ pub extern "system" fn Java_com_airplayreceiver_desktop_nativebridge_FusionPlayN
             .or(interface_eui64_hardware_address.as_deref())
             .is_some_and(|address| address == active_identity.hardware_address),
     }));
+    let port_path = identity_dir.join("miplay-control-port-v1.json");
+    let cached_port = fs::read_to_string(&port_path).ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .filter(|value| value.get("idm_instance_id").and_then(Value::as_str)
+            == Some(identity.idm_instance_id.as_str()))
+        .and_then(|value| value.get("port").and_then(Value::as_u64))
+        .and_then(|port| u16::try_from(port).ok())
+        .filter(|port| *port != 0);
+    let idm_instance_id = identity.idm_instance_id.clone();
     let config = ReceiverConfig::new(name, identity, local_ip, interface_name)
+        .with_preferred_control_port(cached_port)
         .with_device_type(device_type)
         .with_output_device(output_device)
         .with_hardware_address(Some(active_identity.hardware_address.clone()))
         .with_initial_volume_percent(initial_volume_percent.clamp(0, 100) as u32);
     match MiPlayReceiver::start(config, events) {
         Ok(receiver) => {
+            // HyperOS reuses command-session capabilities and ports by MAC.
+            // Reuse the previous listener port before publishing discovery.
+            let cached = json!({"idm_instance_id": idm_instance_id, "port": receiver.control_port()});
+            let temporary_path = port_path.with_extension("tmp");
+            if fs::write(&temporary_path, cached.to_string()).is_ok() {
+                let _ = fs::rename(&temporary_path, &port_path);
+            }
             *host.miplay_controller.lock().expect("controller") = Some(receiver.controller());
             *host.miplay.lock().expect("miplay") = Some(receiver);
             *host.miplay_identity.lock().expect("miplay identity") = Some(active_identity);

@@ -2387,6 +2387,7 @@ struct AndroidMiPlayAudioCallback {
     endpoint_latency_initialized: bool,
     latency_refresh_countdown: u32,
     timed_playback_started: bool,
+    schedule_diagnostic_emitted: bool,
 }
 
 #[cfg(target_os = "android")]
@@ -2450,6 +2451,27 @@ impl AudioOutputCallback for AndroidMiPlayAudioCallback {
         self.latency_telemetry
             .update_buffered_frames(queue.buffered_frames());
         let synchronized_frames = synchronized_buffer_frames(self.endpoint_latency_millis);
+        if !self.schedule_diagnostic_emitted && self.presentation_clock.synchronization_ready() {
+            if let (Some(pts), Some(now)) = (
+                queue.front_pts_micros(),
+                self.presentation_clock.synchronized_server_now_micros(),
+            ) {
+                let offset = self
+                    .presentation_clock
+                    .presentation_offset_micros
+                    .load(Ordering::Acquire);
+                (self.events)(json!({
+                    "event": "audio_presentation_schedule",
+                    "front_pts_us": pts,
+                    "time_offset_us": offset,
+                    "server_now_us": now,
+                    "schedule_error_us": presentation_schedule_error_micros(pts, offset, now, self.endpoint_latency_millis),
+                    "buffered_frames": queue.buffered_frames(),
+                    "timed_playback_started": self.timed_playback_started,
+                }));
+                self.schedule_diagnostic_emitted = true;
+            }
+        }
         let mut leading_silence_frames = 0_usize;
         let mut synchronization_mode = "buffer_window";
         let playback_rate = if self.presentation_clock.synchronization_ready()
@@ -2623,6 +2645,7 @@ fn open_android_miplay_stream(
         endpoint_latency_initialized: false,
         latency_refresh_countdown: 0,
         timed_playback_started: false,
+        schedule_diagnostic_emitted: false,
     };
     let mut stream = AudioStreamBuilder::default()
         .set_usage(Usage::Media)
