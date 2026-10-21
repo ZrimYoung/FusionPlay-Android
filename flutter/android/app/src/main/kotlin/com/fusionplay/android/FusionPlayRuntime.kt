@@ -49,6 +49,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.longOrNull
 
 /**
  * Process-scoped owner of the original FusionPlay backend.
@@ -771,7 +775,17 @@ class FusionPlayRuntime(
                     "reason" to reduction.reason,
                     "mutation_count" to reduction.mutations.size,
                     "volume_percent" to event.toVolumePercentOrNull(),
-                ),
+                ) + (event.payload as? JsonObject).orEmpty()
+                    .filterKeys { it in MIPLAY_DIAGNOSTIC_FIELDS }
+                    .mapKeys { (key, _) -> "protocol_$key" }
+                    .mapValues { (_, value) ->
+                        when (value) {
+                            is JsonPrimitive -> if (value.isString) value.content else {
+                                value.booleanOrNull ?: value.longOrNull ?: value.content
+                            }
+                            else -> value.toString()
+                        }
+                    },
             )
         }
         for (mutation in reduction.mutations) {
@@ -1252,6 +1266,13 @@ class FusionPlayRuntime(
     )
 
     companion object {
+        // Keep useful discovery outcomes while excluding wire packets,
+        // authentication material and device/account identities. The logger
+        // applies its existing address and secret redaction to these values.
+        private val MIPLAY_DIAGNOSTIC_FIELDS = setOf(
+            "source", "destination", "service", "success", "unicast",
+            "address_family", "profile", "port", "control_port", "code", "message",
+        )
         private const val METHOD_CHANNEL = "com.fusionplay.android/runtime"
         private const val EVENT_CHANNEL = "com.fusionplay.android/runtime_events"
         private const val XIAOMI_PROTOCOL = "小米妙播"

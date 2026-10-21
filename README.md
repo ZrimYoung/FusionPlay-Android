@@ -65,7 +65,7 @@ Rust 模块可分别运行 `cargo test` 和 `cargo clippy`。Android 原生库�
 
 ## 小米电视端口冲突修复
 
-部分小米电视的系统接收器已经监听 TCP 8899。FusionPlay 现在优先使用该端口；仅当端口被占用时，由系统分配空闲端口，并在 Lyra 的 PeerPort 握手响应中返回实际监听端口。原有系统接收器无需停用。
+部分小米电视的系统接收器已经监听 TCP 8899。FusionPlay 现在优先使用该端口；仅当端口被占用时，由系统分配空闲端口，并在 Lyra 的 PeerPort 握手响应及 Mi Connect 的 appsData 发现记录中返回实际监听端口。原有系统接收器无需停用。
 
 `fix/miplay-port-conflict` 分支提供 GitHub Actions 自动构建，也可在 Actions 中手动运行 **Build Android port fix**。成功后可下载 `FusionPlay-1.2.4-portfix-debug` APK 构建产物，保留 30 天。测试版包名为 `com.fusionplay.android.portfix`，可与原版同时安装；验证时请关闭原版 FusionPlay，避免 AirPlay 和 DLNA 端口冲突。
 

@@ -157,6 +157,7 @@ impl MiPlayAdvertisement {
         interface_name: &str,
         diagnostic_multicast_loopback: bool,
         events: EventEmitter,
+        control_port: u16,
     ) -> Result<Self> {
         let protocol_name = sanitize_protocol_name(receiver_name);
         let instance = lyra_instance(lyra_instance_id, local_ip);
@@ -224,6 +225,7 @@ impl MiPlayAdvertisement {
             diagnostic_multicast_loopback,
             Arc::clone(&shutdown),
             events,
+            control_port,
         )?;
 
         #[cfg(not(windows))]
@@ -252,6 +254,7 @@ impl MiPlayAdvertisement {
                         device_type,
                         local_ip,
                         mi_connect_ipv6,
+                        control_port,
                     ))
                 })
                 .collect();
@@ -273,6 +276,7 @@ impl MiPlayAdvertisement {
                     device_type,
                     local_ip,
                     mi_connect_ipv6,
+                    control_port,
                 ),
                 lyra_instance_name: instance.clone(),
                 mi_connect_instance_name: mi_connect_instance.clone(),
@@ -602,6 +606,7 @@ fn spawn_windows_dnssd_responder(
     diagnostic_multicast_loopback: bool,
     shutdown: Arc<AtomicBool>,
     events: EventEmitter,
+    control_port: u16,
 ) -> Result<JoinHandle<()>> {
     let interface_index = if_addrs::get_if_addrs()
         .ok()
@@ -633,6 +638,7 @@ fn spawn_windows_dnssd_responder(
                 device_type,
                 local_ip,
                 mi_connect_ipv6,
+                control_port,
             );
             let lyra_properties = parse_txt_properties(&build_txt_data(
                 &receiver_name,
@@ -648,6 +654,7 @@ fn spawn_windows_dnssd_responder(
                 &idm_instance_id,
                 &media_device_id,
                 device_type,
+                control_port,
             ));
             let lyra_mdns_host_name = format!("{lyra_instance_name}.local");
             let mi_connect_mdns_host_name = format!("{mi_connect_instance_name}.local");
@@ -1969,8 +1976,15 @@ fn build_mi_connect_response(
     device_type: MiPlayDeviceType,
     local_ip: Ipv4Addr,
     link_local_v6: Option<Ipv6Addr>,
+    control_port: u16,
 ) -> Vec<u8> {
-    let txt = build_mi_connect_txt(receiver_name, idm_device_id, media_device_id, device_type);
+    let txt = build_mi_connect_txt(
+        receiver_name,
+        idm_device_id,
+        media_device_id,
+        device_type,
+        control_port,
+    );
     let additional_records = if link_local_v6.is_some() { 4u16 } else { 3u16 };
     let mut packet = Vec::with_capacity(320);
 
@@ -2044,6 +2058,7 @@ fn build_mi_connect_txt(
     idm_device_id: &str,
     media_device_id: &str,
     device_type: MiPlayDeviceType,
+    control_port: u16,
 ) -> Vec<u8> {
     let identity = idm_identity(idm_device_id);
     let advertised_mac = parse_hardware_address(media_device_id)
@@ -2078,10 +2093,22 @@ fn build_mi_connect_txt(
         // identity remain consistent.
         format!("dev={}", device_type.protocol_value()),
         "sec=2".to_owned(),
-        // Preserve the descriptor emitted by Android 1.1.7. Its Lyra support
-        // marker is intentionally absent: Mi Connect owns the sole picker
+        // Preserve Android 1.1.7 capability bytes and advertise the bound TCP
+        // control port, including when the default port is already occupied.
+        // Its Lyra support marker is intentionally absent: Mi Connect owns the sole picker
         // route while Lyra remains the discovery/control handshake.
-        "appsData=gQAEBIMiww==".to_owned(),
+        format!(
+            "appsData={}",
+            base64::engine::general_purpose::STANDARD.encode([
+                0x81,
+                0x00,
+                0x04,
+                0x04,
+                0x83,
+                (control_port >> 8) as u8,
+                control_port as u8
+            ])
+        ),
     ];
     // Xiaomi's BonjourGovernor first reads `mac` from the TXT record. If the
     // field is absent it pings the IPv4 address and asks the Wi-Fi stack for a
@@ -2491,7 +2518,13 @@ mod tests {
             MiPlayDeviceType::Television,
         );
         assert_eq!(payload[2], 3);
-        let txt = build_mi_connect_txt("FusionPlay", "idm-test", "", MiPlayDeviceType::Television);
+        let txt = build_mi_connect_txt(
+            "FusionPlay",
+            "idm-test",
+            "",
+            MiPlayDeviceType::Television,
+            8899,
+        );
         let expected = "dev=2";
         assert!(
             txt.windows(expected.len())
@@ -2531,7 +2564,7 @@ mod tests {
             (MiPlayDeviceType::Speaker, "dev=4"),
             (MiPlayDeviceType::DisplaySpeaker, "dev=16"),
         ] {
-            let txt = build_mi_connect_txt("FusionPlay", "idm-test", "", device_type);
+            let txt = build_mi_connect_txt("FusionPlay", "idm-test", "", device_type, 8899);
             assert!(
                 txt.windows(expected.len())
                     .any(|window| window == expected.as_bytes()),
@@ -2583,6 +2616,7 @@ mod tests {
             "c86c85e8-cd15-4ebd-b898-c15e75deb923",
             "",
             MiPlayDeviceType::Television,
+            8899,
         );
         assert!(
             txt.windows(b"idHash=c2x5".len())
@@ -2692,6 +2726,7 @@ mod tests {
             MiPlayDeviceType::Television,
             Ipv4Addr::new(192, 168, 31, 128),
             Some("2401:7e00:c40:8160:d896:44bd:ac07:390a".parse().unwrap()),
+            8899,
         );
         assert_eq!(&response[..12], &[0, 0, 0x84, 0, 0, 0, 0, 1, 0, 0, 0, 4]);
         assert_eq!(response.len(), 249);
@@ -2721,12 +2756,43 @@ mod tests {
     }
 
     #[test]
+    fn mi_connect_descriptor_advertises_the_bound_control_port() {
+        use base64::Engine;
+        use std::net::TcpListener;
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let response = build_mi_connect_response(
+            "FusionPlay",
+            "test-instance",
+            "idm-test",
+            "",
+            MiPlayDeviceType::Television,
+            Ipv4Addr::LOCALHOST,
+            None,
+            port,
+        );
+        let marker = b"appsData=";
+        let offset = response
+            .windows(marker.len())
+            .position(|bytes| bytes == marker)
+            .unwrap();
+        let length = usize::from(response[offset - 1]) - marker.len();
+        let data = base64::engine::general_purpose::STANDARD
+            .decode(&response[offset + marker.len()..offset + marker.len() + length])
+            .unwrap();
+        assert_eq!(&data[..5], &[0x81, 0, 4, 4, 0x83]);
+        assert_eq!(u16::from_be_bytes([data[5], data[6]]), port);
+        std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+    }
+
+    #[test]
     fn mi_connect_wired_receiver_advertises_raw_hardware_address() {
         let txt = build_mi_connect_txt(
             "ASUS",
             "c86c85e8-cd15-4ebd-b898-c15e75deb923",
             "A0-36-BC-25-05-43",
             MiPlayDeviceType::Television,
+            8899,
         );
         assert!(
             txt.windows(b"mac=oDa8JQVD".len())
@@ -2838,6 +2904,7 @@ mod tests {
             MiPlayDeviceType::Television,
             Ipv4Addr::new(192, 168, 31, 128),
             None,
+            8899,
         );
         let rewritten = set_dns_record_ttls(&response, 10).expect("valid DNS-SD response");
         assert_eq!(response.len(), rewritten.len());

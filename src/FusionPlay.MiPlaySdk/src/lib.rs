@@ -301,6 +301,7 @@ impl MiPlayReceiver {
             &config.interface_name,
             config.diagnostic_multicast_loopback,
             Arc::clone(&events),
+            control_port,
         ) {
             Ok(advertisement) => advertisement,
             Err(error) => {
