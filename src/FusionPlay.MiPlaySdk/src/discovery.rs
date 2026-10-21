@@ -1226,7 +1226,9 @@ fn spawn_lyra_peer_browser(
                     Err(error)
                         if matches!(
                             error.kind(),
-                            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                            io::ErrorKind::WouldBlock
+                                | io::ErrorKind::TimedOut
+                                | io::ErrorKind::Interrupted
                         ) => {}
                     Err(error) => {
                         events(json!({
@@ -1558,7 +1560,9 @@ fn responder_loop_inner(
             Err(error)
                 if matches!(
                     error.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    io::ErrorKind::WouldBlock
+                        | io::ErrorKind::TimedOut
+                        | io::ErrorKind::Interrupted
                 ) => {}
             Err(error) => {
                 events(json!({

@@ -38,6 +38,7 @@ import java.net.URI
 import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -1098,7 +1099,12 @@ class FusionPlayRuntime(
                                 bridge.setArtwork(URI.create(artwork))
                             else -> bridge.setArtwork(Paths.get(artwork))
                         }
-                    }.onFailure { reportError("媒体封面更新失败", it) }
+                    }.onFailure {
+                        // A newer cover or session replaces this job normally.
+                        // Preserve cancellation instead of surfacing it as a failed download.
+                        if (it is CancellationException) throw it
+                        reportError("媒体封面更新失败", it)
+                    }
                 }
             }
         }
