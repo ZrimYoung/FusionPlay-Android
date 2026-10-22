@@ -290,6 +290,34 @@ class RemoteControlState {
   );
 }
 
+class NativeCastState {
+  const NativeCastState({
+    this.supported = false,
+    this.paused = false,
+    this.busy = false,
+    this.message = '',
+  });
+  final bool supported;
+  final bool paused;
+  final bool busy;
+  final String message;
+  factory NativeCastState.fromMap(Map<Object?, Object?> map) => NativeCastState(
+    supported: map['supported'] as bool? ?? false,
+    paused: map['paused'] as bool? ?? false,
+    busy: map['busy'] as bool? ?? false,
+    message: _string(map['message']) ?? '',
+  );
+  @override
+  bool operator ==(Object other) =>
+      other is NativeCastState &&
+      supported == other.supported &&
+      paused == other.paused &&
+      busy == other.busy &&
+      message == other.message;
+  @override
+  int get hashCode => Object.hash(supported, paused, busy, message);
+}
+
 class AppState {
   const AppState({
     this.initialized = false,
@@ -305,6 +333,7 @@ class AppState {
     this.settings = const AppSettings(),
     this.playback = const PlaybackSnapshot(),
     this.remoteControl = const RemoteControlState(),
+    this.nativeCast = const NativeCastState(),
     this.lastError,
   });
 
@@ -321,6 +350,7 @@ class AppState {
   final AppSettings settings;
   final PlaybackSnapshot playback;
   final RemoteControlState remoteControl;
+  final NativeCastState nativeCast;
   final String? lastError;
 
   factory AppState.fromMap(Map<Object?, Object?> map) => AppState(
@@ -337,6 +367,7 @@ class AppState {
     settings: AppSettings.fromMap(_map(map['settings'])),
     playback: PlaybackSnapshot.fromMap(_map(map['playback'])),
     remoteControl: RemoteControlState.fromMap(_map(map['remoteControl'])),
+    nativeCast: NativeCastState.fromMap(_map(map['nativeCast'])),
     lastError: _string(map['lastError']),
   );
 
@@ -354,6 +385,7 @@ class AppState {
     settings: settings,
     playback: playback,
     remoteControl: remoteControl,
+    nativeCast: nativeCast,
     lastError: lastError ?? this.lastError,
   );
 
@@ -374,6 +406,7 @@ class AppState {
           settings == other.settings &&
           playback == other.playback &&
           remoteControl == other.remoteControl &&
+          nativeCast == other.nativeCast &&
           lastError == other.lastError;
 
   @override
@@ -391,6 +424,7 @@ class AppState {
     settings,
     playback,
     remoteControl,
+    nativeCast,
     lastError,
   ]);
 }

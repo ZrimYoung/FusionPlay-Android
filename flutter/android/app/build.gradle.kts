@@ -34,7 +34,7 @@ android {
             .getOrElse("com.fusionplay.android")
         resValue("string", "fusionplay_launcher_label",
             if (applicationId == "com.fusionplay.android.portfix") "FusionPlay 修复版" else "FusionPlay")
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 24) // Shizuku API 13.1.5 requires Android 7.
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -59,6 +59,7 @@ android {
 
     buildFeatures {
         buildConfig = true
+        aidl = true
     }
 
     lint {
@@ -99,6 +100,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.8.0")
     implementation("androidx.media3:media3-exoplayer-hls:1.8.0")
     implementation("androidx.media:media:1.7.0")
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
     testImplementation("junit:junit:4.13.2")
 }
 

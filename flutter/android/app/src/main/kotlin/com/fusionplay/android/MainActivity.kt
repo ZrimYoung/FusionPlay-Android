@@ -46,10 +46,12 @@ class MainActivity : FlutterActivity() {
     override fun onStart() {
         super.onStart()
         appInForeground = true
+        (application as FusionPlayFlutterApplication).runtime.setAppForeground(true)
     }
 
     override fun onStop() {
         appInForeground = false
+        (application as FusionPlayFlutterApplication).runtime.setAppForeground(false)
         super.onStop()
     }
 

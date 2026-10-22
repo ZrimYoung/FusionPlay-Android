@@ -7,6 +7,54 @@ import 'package:fusionplay_android_flutter/models/app_state.dart';
 import 'package:fusionplay_android_flutter/ui/settings_view.dart';
 
 void main() {
+  testWidgets(
+    'native cast pause is separate from MiPlay and blocks duplicate operations',
+    (tester) async {
+      final initial = FocusNode();
+      addTearDown(initial.dispose);
+      tester.view.physicalSize = const Size(600, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final changes = <bool>[];
+      var miPlayChanges = 0;
+      Widget screen(bool busy) => MaterialApp(
+        home: Scaffold(
+          body: SettingsView(
+            state: AppState(
+              initialized: true,
+              nativeCast: NativeCastState(supported: true, busy: busy),
+            ),
+            initialFocusNode: initial,
+            onClose: () {},
+            onReceiverName: (_) {},
+            onStartup: (_) {},
+            onAutoWake: (_) {},
+            onAdvancedEffects: (_) {},
+            onMiPlay: (_) {
+              miPlayChanges++;
+            },
+            onMiPlayIdentity: (_) {},
+            onAirPlay: (_) {},
+            onDlna: (_) {},
+            onExportLogs: () async {},
+            onNativeCast: changes.add,
+          ),
+        ),
+      );
+      await tester.pumpWidget(screen(false));
+      await tester.ensureVisible(find.text('暂停原生投屏'));
+      await tester.tap(find.text('暂停原生投屏'));
+      await tester.pump();
+      expect(changes, [true]);
+      expect(miPlayChanges, 0);
+      await tester.pumpWidget(screen(true));
+      await tester.tap(find.text('暂停原生投屏'));
+      await tester.pump();
+      expect(changes, [true]);
+    },
+  );
+
   testWidgets('menu toggles settings and remote back closes it', (
     tester,
   ) async {

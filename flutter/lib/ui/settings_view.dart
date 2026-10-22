@@ -28,6 +28,7 @@ class SettingsView extends StatefulWidget {
     required this.onAirPlay,
     required this.onDlna,
     required this.onExportLogs,
+    this.onNativeCast,
   });
 
   final AppState state;
@@ -42,6 +43,7 @@ class SettingsView extends StatefulWidget {
   final ValueChanged<bool> onAirPlay;
   final ValueChanged<bool> onDlna;
   final Future<void> Function() onExportLogs;
+  final ValueChanged<bool>? onNativeCast;
 
   @override
   State<SettingsView> createState() => _SettingsViewState();
@@ -141,6 +143,31 @@ class _SettingsViewState extends State<SettingsView> {
                 for (final identity in MiPlayDeviceIdentity.values)
                   _identityRow(identity, settings.miPlayDeviceIdentity),
               ]),
+              if (widget.state.nativeCast.supported &&
+                  widget.onNativeCast != null) ...[
+                const SizedBox(height: SettingsStyle.cardSpacing),
+                _card([
+                  _switchRow(
+                    icon: Icons.cast_rounded,
+                    title: '暂停原生投屏',
+                    value: widget.state.nativeCast.paused,
+                    enabled: !widget.state.nativeCast.busy,
+                    onChanged: widget.onNativeCast!,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
+                    child: Text(
+                      widget.state.nativeCast.busy
+                          ? '正在切换…'
+                          : widget.state.nativeCast.message,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: SettingsStyle.secondaryText,
+                      ),
+                    ),
+                  ),
+                ]),
+              ],
               const SizedBox(height: SettingsStyle.cardSpacing),
               _card([
                 _switchRow(
@@ -505,11 +532,12 @@ class _SettingsViewState extends State<SettingsView> {
     bool preserveAssetColors = false,
     FocusNode? focusNode,
     bool focusNameOnUp = false,
+    bool enabled = true,
     required String title,
     required bool value,
     required ValueChanged<bool> onChanged,
   }) => RemoteFocusFrame(
-    enabled: !widget.state.busy,
+    enabled: !widget.state.busy && enabled,
     focusNode: focusNode,
     onActivate: () => onChanged(!value),
     shortcuts: focusNameOnUp
@@ -530,7 +558,7 @@ class _SettingsViewState extends State<SettingsView> {
         : const <Type, Action<Intent>>{},
     shape: const G2ContinuousBorder(radius: 20),
     child: InkWell(
-      onTap: widget.state.busy ? null : () => onChanged(!value),
+      onTap: widget.state.busy || !enabled ? null : () => onChanged(!value),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         child: Row(
@@ -571,7 +599,7 @@ class _SettingsViewState extends State<SettingsView> {
                 height: SettingsStyle.switchHeight,
                 child: _G2SettingsSwitch(
                   value: value,
-                  onChanged: widget.state.busy ? null : onChanged,
+                  onChanged: widget.state.busy || !enabled ? null : onChanged,
                 ),
               ),
             ),

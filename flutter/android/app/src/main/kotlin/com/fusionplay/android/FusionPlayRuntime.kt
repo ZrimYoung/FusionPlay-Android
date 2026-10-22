@@ -97,8 +97,10 @@ class FusionPlayRuntime(
     private var pendingManualXiaomiStop = false
     private var xiaomiTrackChangeDirection: String? = null
     private var lastMiPlayProgressLogNanos = 0L
+    private val nativeCast = com.fusionplay.android.cast.NativeCastManager(context, scope)
 
     init {
+        scope.launch { nativeCast.state.collect { publishState(viewModel.state.value) } }
         scope.launch {
             viewModel.awaitInitialized()
             runCatching { bridge.initialize() }
@@ -218,6 +220,7 @@ class FusionPlayRuntime(
                     }
                     "setAdvancedEffectsEnabled" ->
                         viewModel.setAdvancedEffectsEnabled(call.boolean("value"))
+                    "setNativeCastPaused" -> nativeCast.setPaused(call.boolean("value"))
                     "setProtocolEnabled" -> viewModel.setProtocolEnabled(
                         ReceiverProtocol.valueOf(call.string("protocol").uppercase()),
                         call.boolean("value"),
@@ -1111,6 +1114,7 @@ class FusionPlayRuntime(
     }
 
     private fun stateMap(state: AppState): Map<String, Any?> = mapOf(
+        "nativeCast" to nativeCast.state.value.toMap(),
         "initialized" to state.initialized,
         "busy" to state.busy,
         "coreRunning" to state.coreRunning,
@@ -1234,11 +1238,14 @@ class FusionPlayRuntime(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        nativeCast.close()
         networkPlayer.close()
         bridge.close()
         viewModel.close()
         scope.cancel()
     }
+
+    fun setAppForeground(value: Boolean) = nativeCast.setForeground(value)
 
     private fun MethodCall.string(name: String): String = argument<String>(name).orEmpty()
     private fun MethodCall.boolean(name: String): Boolean = argument<Boolean>(name) == true

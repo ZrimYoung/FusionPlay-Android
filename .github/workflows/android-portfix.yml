@@ -80,11 +80,12 @@ jobs:
 
       # Device testing on 32-bit TVs uses precompiled Dart. The debug build
       # exhibited an input-dispatch ANR during Flutter semantics updates.
-      - name: Build standalone performance diagnostic APK
+      - name: Build native casting switch APK
         working-directory: flutter
         run: |
           flutter --no-version-check build apk --profile --no-pub \
-            --build-name=1.2.4-coexist --build-number=10206
+            --build-name=1.2.4-castswitch --build-number=10207 \
+            --dart-define=FUSIONPLAY_VERSION=1.2.4-castswitch
 
       - name: Test Kotlin backend
         working-directory: flutter/android
@@ -93,7 +94,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FusionPlay-1.2.4-coexist-profile
+          name: FusionPlay-1.2.4-castswitch-profile
           path: flutter/build/app/outputs/flutter-apk/app-profile.apk
           if-no-files-found: error
           retention-days: 30
