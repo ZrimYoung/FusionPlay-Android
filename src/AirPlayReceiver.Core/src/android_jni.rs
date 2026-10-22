@@ -820,6 +820,15 @@ pub extern "system" fn Java_com_airplayreceiver_desktop_nativebridge_FusionPlayN
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_airplayreceiver_desktop_nativebridge_FusionPlayNative_nativeSetMiPlayOutputAdvance(
+    _env: JNIEnv,
+    _class: JClass,
+    millis: jint,
+) {
+    fusionplay_miplay_sdk::media::set_android_output_advance_millis(millis.clamp(0, 500) as u32);
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_airplayreceiver_desktop_nativebridge_FusionPlayNative_nativeStopMiPlay(
     _env: JNIEnv,
     _class: JClass,

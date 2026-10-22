@@ -379,6 +379,8 @@ class _FusionPlayHomeState extends State<FusionPlayHome> {
                         widget.controller.setProtocolEnabled('miplay', value),
                     onMiPlayIdentity: widget.controller.setMiPlayDeviceIdentity,
                     onNativeCast: widget.controller.setNativeCastPaused,
+                    onMiPlayOutputAdvance:
+                        widget.controller.setMiPlayOutputAdvance,
                     onAirPlay: (value) =>
                         widget.controller.setProtocolEnabled('airplay', value),
                     onDlna: (value) =>

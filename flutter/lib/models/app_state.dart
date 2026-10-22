@@ -334,6 +334,7 @@ class AppState {
     this.playback = const PlaybackSnapshot(),
     this.remoteControl = const RemoteControlState(),
     this.nativeCast = const NativeCastState(),
+    this.miPlayOutputAdvanceMs = 0,
     this.lastError,
   });
 
@@ -351,6 +352,7 @@ class AppState {
   final PlaybackSnapshot playback;
   final RemoteControlState remoteControl;
   final NativeCastState nativeCast;
+  final int miPlayOutputAdvanceMs;
   final String? lastError;
 
   factory AppState.fromMap(Map<Object?, Object?> map) => AppState(
@@ -368,6 +370,7 @@ class AppState {
     playback: PlaybackSnapshot.fromMap(_map(map['playback'])),
     remoteControl: RemoteControlState.fromMap(_map(map['remoteControl'])),
     nativeCast: NativeCastState.fromMap(_map(map['nativeCast'])),
+    miPlayOutputAdvanceMs: _integer(map['miPlayOutputAdvanceMs']) ?? 0,
     lastError: _string(map['lastError']),
   );
 
@@ -386,6 +389,7 @@ class AppState {
     playback: playback,
     remoteControl: remoteControl,
     nativeCast: nativeCast,
+    miPlayOutputAdvanceMs: miPlayOutputAdvanceMs,
     lastError: lastError ?? this.lastError,
   );
 
@@ -407,6 +411,7 @@ class AppState {
           playback == other.playback &&
           remoteControl == other.remoteControl &&
           nativeCast == other.nativeCast &&
+          miPlayOutputAdvanceMs == other.miPlayOutputAdvanceMs &&
           lastError == other.lastError;
 
   @override
@@ -425,6 +430,7 @@ class AppState {
     playback,
     remoteControl,
     nativeCast,
+    miPlayOutputAdvanceMs,
     lastError,
   ]);
 }

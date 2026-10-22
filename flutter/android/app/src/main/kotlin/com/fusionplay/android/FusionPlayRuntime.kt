@@ -98,8 +98,12 @@ class FusionPlayRuntime(
     private var xiaomiTrackChangeDirection: String? = null
     private var lastMiPlayProgressLogNanos = 0L
     private val nativeCast = com.fusionplay.android.cast.NativeCastManager(context, scope)
+    private val audioCalibration = context.getSharedPreferences("audio_sync", Context.MODE_PRIVATE)
+    private var miPlayOutputAdvanceMs = audioCalibration.getInt("advance_ms", 0).coerceIn(0, 500)
 
     init {
+        com.airplayreceiver.desktop.nativebridge.FusionPlayNative
+            .nativeSetMiPlayOutputAdvance(miPlayOutputAdvanceMs)
         scope.launch { nativeCast.state.collect { publishState(viewModel.state.value) } }
         scope.launch {
             viewModel.awaitInitialized()
@@ -221,6 +225,14 @@ class FusionPlayRuntime(
                     "setAdvancedEffectsEnabled" ->
                         viewModel.setAdvancedEffectsEnabled(call.boolean("value"))
                     "setNativeCastPaused" -> nativeCast.setPaused(call.boolean("value"))
+                    "setMiPlayOutputAdvance" -> {
+                        val millis = call.int("value")
+                        require(millis in 0..500) { "补偿范围为 0 至 500 毫秒" }
+                        com.airplayreceiver.desktop.nativebridge.FusionPlayNative.nativeSetMiPlayOutputAdvance(millis)
+                        audioCalibration.edit().putInt("advance_ms", millis).apply()
+                        miPlayOutputAdvanceMs = millis
+                        publishState(viewModel.state.value)
+                    }
                     "setProtocolEnabled" -> viewModel.setProtocolEnabled(
                         ReceiverProtocol.valueOf(call.string("protocol").uppercase()),
                         call.boolean("value"),
@@ -1115,6 +1127,7 @@ class FusionPlayRuntime(
 
     private fun stateMap(state: AppState): Map<String, Any?> = mapOf(
         "nativeCast" to nativeCast.state.value.toMap(),
+        "miPlayOutputAdvanceMs" to miPlayOutputAdvanceMs,
         "initialized" to state.initialized,
         "busy" to state.busy,
         "coreRunning" to state.coreRunning,
@@ -1295,6 +1308,7 @@ class FusionPlayRuntime(
             "timed_playback_started",
             "observed_output_latency_ms", "underrun_callbacks",
             "output_latency_calibrated",
+            "output_advance_ms",
         )
         private const val METHOD_CHANNEL = "com.fusionplay.android/runtime"
         private const val EVENT_CHANNEL = "com.fusionplay.android/runtime_events"

@@ -7,6 +7,52 @@ import 'package:fusionplay_android_flutter/models/app_state.dart';
 import 'package:fusionplay_android_flutter/ui/settings_view.dart';
 
 void main() {
+  testWidgets('audio calibration respects limits and can return to zero', (
+    tester,
+  ) async {
+    final initial = FocusNode();
+    addTearDown(initial.dispose);
+    tester.view.physicalSize = const Size(600, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final values = <int>[];
+    Widget screen(int value) => MaterialApp(
+      home: Scaffold(
+        body: SettingsView(
+          state: AppState(initialized: true, miPlayOutputAdvanceMs: value),
+          initialFocusNode: initial,
+          onClose: () {},
+          onReceiverName: (_) {},
+          onStartup: (_) {},
+          onAutoWake: (_) {},
+          onAdvancedEffects: (_) {},
+          onMiPlay: (_) {},
+          onMiPlayIdentity: (_) {},
+          onAirPlay: (_) {},
+          onDlna: (_) {},
+          onExportLogs: () async {},
+          onMiPlayOutputAdvance: values.add,
+        ),
+      ),
+    );
+    await tester.pumpWidget(screen(0));
+    await tester.ensureVisible(find.text('+10'));
+    await tester.tap(find.text('−10'));
+    await tester.tap(find.text('+10'));
+    await tester.pump();
+    expect(values, [10]);
+    await tester.pumpWidget(screen(500));
+    await tester.ensureVisible(find.text('+10'));
+    await tester.tap(find.text('+10'));
+    await tester.tap(find.text('−10'));
+    await tester.tap(find.text('归零'));
+    await tester.pump();
+    expect(values, [10, 490, 0]);
+    final parsed = AppState.fromMap({'miPlayOutputAdvanceMs': 100});
+    expect(parsed.copyWith(lastError: 'test').miPlayOutputAdvanceMs, 100);
+  });
+
   testWidgets(
     'remote name editor cancellation preserves name and completion only edits draft',
     (tester) async {

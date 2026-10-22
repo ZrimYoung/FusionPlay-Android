@@ -30,6 +30,7 @@ class SettingsView extends StatefulWidget {
     required this.onExportLogs,
     this.onNativeCast,
     this.onEditReceiverName,
+    this.onMiPlayOutputAdvance,
   });
 
   final AppState state;
@@ -46,6 +47,7 @@ class SettingsView extends StatefulWidget {
   final Future<void> Function() onExportLogs;
   final ValueChanged<bool>? onNativeCast;
   final Future<String?> Function(String value, String hint)? onEditReceiverName;
+  final ValueChanged<int>? onMiPlayOutputAdvance;
 
   @override
   State<SettingsView> createState() => _SettingsViewState();
@@ -146,6 +148,10 @@ class _SettingsViewState extends State<SettingsView> {
                 for (final identity in MiPlayDeviceIdentity.values)
                   _identityRow(identity, settings.miPlayDeviceIdentity),
               ]),
+              if (widget.onMiPlayOutputAdvance != null) ...[
+                const SizedBox(height: SettingsStyle.cardSpacing),
+                _card([_audioSyncCalibration()]),
+              ],
               if (widget.state.nativeCast.supported &&
                   widget.onNativeCast != null) ...[
                 const SizedBox(height: SettingsStyle.cardSpacing),
@@ -234,6 +240,68 @@ class _SettingsViewState extends State<SettingsView> {
       ],
     ),
   );
+
+  Widget _audioSyncCalibration() {
+    final value = widget.state.miPlayOutputAdvanceMs;
+    final enabled = !widget.state.busy;
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('声音同步校准', style: TextStyle(fontSize: 16)),
+          const SizedBox(height: 10),
+          Text('提前 $value 毫秒', style: const TextStyle(fontSize: 18)),
+          const SizedBox(height: 8),
+          const Text(
+            '盒子比其他音响慢时增加。调整时会短暂淡出再恢复。更换输出设备后请重新校准。',
+            style: TextStyle(fontSize: 12, color: SettingsStyle.secondaryText),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _actionButton(
+                  label: '−10',
+                  active: enabled && value > 0,
+                  dark: false,
+                  onPressed: enabled && value > 0
+                      ? () => widget.onMiPlayOutputAdvance!(
+                          (value - 10).clamp(0, 500),
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _actionButton(
+                  label: '+10',
+                  active: enabled && value < 500,
+                  dark: false,
+                  onPressed: enabled && value < 500
+                      ? () => widget.onMiPlayOutputAdvance!(
+                          (value + 10).clamp(0, 500),
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _actionButton(
+                  label: '归零',
+                  active: enabled && value != 0,
+                  dark: false,
+                  onPressed: enabled && value != 0
+                      ? () => widget.onMiPlayOutputAdvance!(0)
+                      : null,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _exportLogsRow() {
     final enabled = !widget.state.busy && !_exportingLogs;
