@@ -2387,7 +2387,9 @@ struct AndroidMiPlayAudioCallback {
     endpoint_latency_initialized: bool,
     latency_refresh_countdown: u32,
     timed_playback_started: bool,
-    schedule_diagnostic_emitted: bool,
+    last_schedule_diagnostic: Option<Instant>,
+    observed_output_latency_millis: Option<f64>,
+    underrun_callbacks: u64,
 }
 
 #[cfg(target_os = "android")]
@@ -2404,6 +2406,7 @@ impl AudioOutputCallback for AndroidMiPlayAudioCallback {
         let route_playback_rate = f64::from(MIPLAY_SAMPLE_RATE_HZ) / f64::from(output_sample_rate);
         if !self.endpoint_latency_initialized || self.latency_refresh_countdown == 0 {
             let observed_latency = stream.calculate_latency_millis().ok();
+            self.observed_output_latency_millis = observed_latency;
             let measured_latency = normalized_output_latency_millis(
                 observed_latency,
                 output_sample_rate,
@@ -2451,7 +2454,8 @@ impl AudioOutputCallback for AndroidMiPlayAudioCallback {
         self.latency_telemetry
             .update_buffered_frames(queue.buffered_frames());
         let synchronized_frames = synchronized_buffer_frames(self.endpoint_latency_millis);
-        if !self.schedule_diagnostic_emitted && self.presentation_clock.synchronization_ready() {
+        if self.last_schedule_diagnostic.is_none_or(|last| last.elapsed() >= StdDuration::from_secs(5))
+            && self.presentation_clock.synchronization_ready() {
             if let (Some(pts), Some(now)) = (
                 queue.front_pts_micros(),
                 self.presentation_clock.synchronized_server_now_micros(),
@@ -2468,8 +2472,11 @@ impl AudioOutputCallback for AndroidMiPlayAudioCallback {
                     "schedule_error_us": presentation_schedule_error_micros(pts, offset, now, self.endpoint_latency_millis),
                     "buffered_frames": queue.buffered_frames(),
                     "timed_playback_started": self.timed_playback_started,
+                    "output_latency_ms": self.endpoint_latency_millis,
+                    "observed_output_latency_ms": self.observed_output_latency_millis,
+                    "underrun_callbacks": self.underrun_callbacks,
                 }));
-                self.schedule_diagnostic_emitted = true;
+                self.last_schedule_diagnostic = Some(Instant::now());
             }
         }
         let mut leading_silence_frames = 0_usize;
@@ -2539,6 +2546,11 @@ impl AudioOutputCallback for AndroidMiPlayAudioCallback {
             }));
         }
         output[..leading_silence_frames].fill((0.0, 0.0));
+        let needed_frames = ((output.len() - leading_silence_frames) as f64 * playback_rate)
+            .ceil() as usize + 1;
+        if queue.buffered_frames() < needed_frames {
+            self.underrun_callbacks = self.underrun_callbacks.saturating_add(1);
+        }
         let callback_peak =
             queue.render_stereo_block(&mut output[leading_silence_frames..], playback_rate);
         self.latency_telemetry
@@ -2645,7 +2657,9 @@ fn open_android_miplay_stream(
         endpoint_latency_initialized: false,
         latency_refresh_countdown: 0,
         timed_playback_started: false,
-        schedule_diagnostic_emitted: false,
+        last_schedule_diagnostic: None,
+        observed_output_latency_millis: None,
+        underrun_callbacks: 0,
     };
     let mut stream = AudioStreamBuilder::default()
         .set_usage(Usage::Media)
