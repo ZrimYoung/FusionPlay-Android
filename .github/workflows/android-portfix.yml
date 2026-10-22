@@ -84,8 +84,8 @@ jobs:
         working-directory: flutter
         run: |
           flutter --no-version-check build apk --profile --no-pub \
-            --build-name=1.2.4-castswitch --build-number=10207 \
-            --dart-define=FUSIONPLAY_VERSION=1.2.4-castswitch
+            --build-name=1.2.4-sync-keyboard --build-number=10210 \
+            --dart-define=FUSIONPLAY_VERSION=1.2.4-sync-keyboard
 
       - name: Test Kotlin backend
         working-directory: flutter/android
@@ -94,7 +94,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FusionPlay-1.2.4-castswitch-profile
+          name: FusionPlay-1.2.4-sync-keyboard-profile
           path: flutter/build/app/outputs/flutter-apk/app-profile.apk
           if-no-files-found: error
           retention-days: 30

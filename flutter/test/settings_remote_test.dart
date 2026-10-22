@@ -8,6 +8,72 @@ import 'package:fusionplay_android_flutter/ui/settings_view.dart';
 
 void main() {
   testWidgets(
+    'remote name editor cancellation preserves name and completion only edits draft',
+    (tester) async {
+      final initial = FocusNode();
+      addTearDown(initial.dispose);
+      tester.view.physicalSize = const Size(600, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      String? result;
+      var opened = 0;
+      final saved = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SettingsView(
+              state: const AppState(
+                initialized: true,
+                settings: AppSettings(receiverName: 'Original'),
+              ),
+              initialFocusNode: initial,
+              onClose: () {},
+              onReceiverName: saved.add,
+              onStartup: (_) {},
+              onAutoWake: (_) {},
+              onAdvancedEffects: (_) {},
+              onMiPlay: (_) {},
+              onMiPlayIdentity: (_) {},
+              onAirPlay: (_) {},
+              onDlna: (_) {},
+              onExportLogs: () async {},
+              onEditReceiverName: (value, hint) async {
+                opened++;
+                return result;
+              },
+            ),
+          ),
+        ),
+      );
+      initial.requestFocus();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      await tester.pump();
+      expect(opened, 1);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'Original',
+      );
+      expect(saved, isEmpty);
+      result = 'New name';
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      await tester.pump();
+      expect(opened, 2);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'New name',
+      );
+      expect(saved, isEmpty);
+      await tester.tap(find.text('应用'));
+      await tester.pump();
+      expect(saved, ['New name']);
+    },
+  );
+
+  testWidgets(
     'native cast pause is separate from MiPlay and blocks duplicate operations',
     (tester) async {
       final initial = FocusNode();

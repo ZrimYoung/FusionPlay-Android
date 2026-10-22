@@ -366,6 +366,11 @@ class _FusionPlayHomeState extends State<FusionPlayHome> {
                     initialFocusNode: _settingsInitialFocus,
                     onClose: _closeSettings,
                     onReceiverName: widget.controller.setReceiverName,
+                    onEditReceiverName: (value, hint) =>
+                        _navigationKeyChannel.invokeMethod<String>(
+                          'editReceiverName',
+                          {'value': value, 'hint': hint},
+                        ),
                     onStartup: widget.controller.setStartupEnabled,
                     onAutoWake: widget.controller.setAutoWakeEnabled,
                     onAdvancedEffects:

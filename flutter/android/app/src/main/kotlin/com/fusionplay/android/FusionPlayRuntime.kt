@@ -1294,6 +1294,7 @@ class FusionPlayRuntime(
             "front_pts_us", "server_now_us", "schedule_error_us", "buffered_frames",
             "timed_playback_started",
             "observed_output_latency_ms", "underrun_callbacks",
+            "output_latency_calibrated",
         )
         private const val METHOD_CHANNEL = "com.fusionplay.android/runtime"
         private const val EVENT_CHANNEL = "com.fusionplay.android/runtime_events"

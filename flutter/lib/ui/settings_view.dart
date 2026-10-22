@@ -29,6 +29,7 @@ class SettingsView extends StatefulWidget {
     required this.onDlna,
     required this.onExportLogs,
     this.onNativeCast,
+    this.onEditReceiverName,
   });
 
   final AppState state;
@@ -44,6 +45,7 @@ class SettingsView extends StatefulWidget {
   final ValueChanged<bool> onDlna;
   final Future<void> Function() onExportLogs;
   final ValueChanged<bool>? onNativeCast;
+  final Future<String?> Function(String value, String hint)? onEditReceiverName;
 
   @override
   State<SettingsView> createState() => _SettingsViewState();
@@ -54,6 +56,7 @@ class _SettingsViewState extends State<SettingsView> {
   late final FocusNode _nameFocus;
   late String _savedName;
   bool _exportingLogs = false;
+  bool _editingName = false;
 
   @override
   void initState() {
@@ -324,35 +327,21 @@ class _SettingsViewState extends State<SettingsView> {
               }
               return KeyEventResult.ignored;
             },
-            child: TextField(
-              focusNode: _nameFocus,
-              controller: _name,
-              maxLength: 63,
-              textInputAction: TextInputAction.done,
-              decoration: InputDecoration(
-                counterText: '',
-                hintText: widget.state.receiverName,
-                hintStyle: const TextStyle(color: SettingsStyle.secondaryText),
-                filled: true,
-                fillColor: Colors.white,
-                border: const OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(28)),
-                  borderSide: BorderSide.none,
-                ),
-                enabledBorder: const OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(28)),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: const OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(28)),
-                  borderSide: BorderSide(color: Colors.black, width: 3),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 16,
-                ),
-              ),
-            ),
+            child: widget.onEditReceiverName == null
+                ? _nameTextField()
+                : RemoteFocusFrame(
+                    focusNode: _nameFocus,
+                    enabled: !widget.state.busy && !_editingName,
+                    onActivate: _editNativeName,
+                    child: InkWell(
+                      onTap: !widget.state.busy && !_editingName
+                          ? _editNativeName
+                          : null,
+                      child: IgnorePointer(
+                        child: _nameTextField(nativeEditor: true),
+                      ),
+                    ),
+                  ),
           ),
           const SizedBox(height: 12),
           Row(
@@ -392,6 +381,59 @@ class _SettingsViewState extends State<SettingsView> {
       ),
     );
   }
+
+  Future<void> _editNativeName() async {
+    if (_editingName || widget.state.busy) return;
+    setState(() => _editingName = true);
+    try {
+      final value = await widget.onEditReceiverName!(
+        _name.text,
+        widget.state.receiverName,
+      );
+      if (mounted && value != null) _name.text = value;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('无法打开名称编辑器，请重试')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _editingName = false);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _nameFocus.requestFocus();
+        });
+      }
+    }
+  }
+
+  Widget _nameTextField({bool nativeEditor = false}) => TextField(
+    focusNode: nativeEditor ? null : _nameFocus,
+    readOnly: nativeEditor,
+    controller: _name,
+    maxLength: 63,
+    textInputAction: TextInputAction.done,
+    decoration: InputDecoration(
+      counterText: '',
+      hintText: widget.state.receiverName,
+      hintStyle: const TextStyle(color: SettingsStyle.secondaryText),
+      filled: true,
+      fillColor: Colors.white,
+      border: const OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(28)),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: const OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(28)),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: const OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(28)),
+        borderSide: BorderSide(color: Colors.black, width: 3),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+    ),
+  );
 
   Widget _actionButton({
     required String label,

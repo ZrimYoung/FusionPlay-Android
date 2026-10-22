@@ -1,6 +1,7 @@
 package com.fusionplay.android
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -8,8 +9,14 @@ import android.graphics.Color
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
+import android.text.InputFilter
+import android.text.InputType
 import android.view.KeyEvent
 import android.view.Window
+import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -24,6 +31,7 @@ class MainActivity : FlutterActivity() {
     private val consumedMediaKeys = mutableSetOf<Int>()
     private var navigationKeyChannel: MethodChannel? = null
     private var pendingAccessibilityKeepAlivePrompt = false
+    private var receiverNameDialog: AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         configureImmersiveMode(window)
@@ -41,6 +49,67 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             NAVIGATION_KEY_CHANNEL,
         )
+        navigationKeyChannel?.setMethodCallHandler { call, result ->
+            if (call.method == "editReceiverName") {
+                editReceiverName(call.argument<String>("value").orEmpty(),
+                    call.argument<String>("hint").orEmpty(), result)
+            } else result.notImplemented()
+        }
+    }
+
+    private fun editReceiverName(value: String, hint: String, result: MethodChannel.Result) {
+        if (receiverNameDialog != null) {
+            result.error("editor_busy", "名称编辑器已打开", null)
+            return
+        }
+        // Some TV firmwares only launch their IME when the focused View
+        // declares onCheckIsTextEditor(). FlutterView does not do so.
+        val editor = EditText(this).apply {
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT
+            imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+            filters = arrayOf(InputFilter.LengthFilter(63))
+            setText(value)
+            setSelection(text.length)
+            this.hint = hint
+        }
+        var completed = false
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("自定义名称")
+            .setView(editor)
+            .setPositiveButton("完成") { _, _ ->
+                completed = true
+                result.success(editor.text.toString())
+            }
+            .setNegativeButton("取消", null)
+            .create()
+        receiverNameDialog = dialog
+        dialog.setOnDismissListener {
+            receiverNameDialog = null
+            if (!completed) result.success(null)
+        }
+        dialog.setOnShowListener {
+            editor.requestFocus()
+            dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+                or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            editor.postDelayed({
+                if (dialog.isShowing) getSystemService(InputMethodManager::class.java)
+                    .showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
+            }, 150)
+        }
+        editor.setOnEditorActionListener { _, action, _ ->
+            if (action == EditorInfo.IME_ACTION_DONE) {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+                true
+            } else false
+        }
+        dialog.show()
+    }
+
+    override fun onDestroy() {
+        receiverNameDialog?.dismiss()
+        navigationKeyChannel?.setMethodCallHandler(null)
+        super.onDestroy()
     }
 
     override fun onStart() {

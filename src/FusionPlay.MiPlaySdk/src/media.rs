@@ -1874,6 +1874,41 @@ fn normalized_output_latency_millis(
         .min(MIPLAY_MAX_OUTPUT_LATENCY_MILLIS)
 }
 
+#[cfg(any(target_os = "android", test))]
+#[derive(Default)]
+struct OutputLatencyEstimator {
+    millis: f64,
+    measured: bool,
+    stable_samples: u8,
+}
+
+#[cfg(any(target_os = "android", test))]
+impl OutputLatencyEstimator {
+    fn observe(&mut self, observed: Option<f64>, fallback: f64) {
+        if let Some(value) = observed.filter(|value| value.is_finite() && *value >= 0.0) {
+            let value = value.min(MIPLAY_MAX_OUTPUT_LATENCY_MILLIS);
+            self.stable_samples = if self.measured && (value - self.millis).abs() <= 2.0 {
+                self.stable_samples.saturating_add(1)
+            } else { 1 };
+            // A callback-duration fallback is not a hardware measurement.
+            // Blending it into the first timestamp preserves a false offset.
+            self.millis = if self.measured {
+                self.millis * (1.0 - MIPLAY_OUTPUT_LATENCY_SMOOTHING)
+                    + value * MIPLAY_OUTPUT_LATENCY_SMOOTHING
+            } else { value };
+            self.measured = true;
+        } else if !self.measured {
+            self.millis = fallback;
+        }
+    }
+
+    fn calibrated(&self) -> bool { self.measured && self.stable_samples >= 2 }
+
+    fn waiting(&self, elapsed: StdDuration) -> bool {
+        !self.calibrated() && elapsed < StdDuration::from_secs(1)
+    }
+}
+
 #[cfg(not(target_os = "android"))]
 fn output_latency_millis(
     info: &cpal::OutputCallbackInfo,
@@ -2383,8 +2418,8 @@ struct AndroidMiPlayAudioCallback {
     callback_started: bool,
     signal_started: bool,
     synchronization_started: bool,
-    endpoint_latency_millis: f64,
-    endpoint_latency_initialized: bool,
+    endpoint_latency: OutputLatencyEstimator,
+    output_started_at: Instant,
     latency_refresh_countdown: u32,
     timed_playback_started: bool,
     last_schedule_diagnostic: Option<Instant>,
@@ -2404,27 +2439,23 @@ impl AudioOutputCallback for AndroidMiPlayAudioCallback {
         let callback_frames = output.len();
         let output_sample_rate = self.output_sample_rate.load(Ordering::Acquire).max(1);
         let route_playback_rate = f64::from(MIPLAY_SAMPLE_RATE_HZ) / f64::from(output_sample_rate);
-        if !self.endpoint_latency_initialized || self.latency_refresh_countdown == 0 {
+        if self.latency_refresh_countdown == 0 {
             let observed_latency = stream.calculate_latency_millis().ok();
             self.observed_output_latency_millis = observed_latency;
-            let measured_latency = normalized_output_latency_millis(
-                observed_latency,
+            let fallback_latency = normalized_output_latency_millis(
+                None,
                 output_sample_rate,
                 callback_frames,
             );
-            self.endpoint_latency_millis = if self.endpoint_latency_initialized {
-                self.endpoint_latency_millis * (1.0 - MIPLAY_OUTPUT_LATENCY_SMOOTHING)
-                    + measured_latency * MIPLAY_OUTPUT_LATENCY_SMOOTHING
-            } else {
-                measured_latency
-            };
-            self.endpoint_latency_initialized = true;
-            self.latency_refresh_countdown = MIPLAY_OUTPUT_LATENCY_REFRESH_CALLBACKS;
+            self.endpoint_latency.observe(observed_latency, fallback_latency);
+            self.latency_refresh_countdown = if self.endpoint_latency.calibrated() {
+                MIPLAY_OUTPUT_LATENCY_REFRESH_CALLBACKS
+            } else { 16 };
         } else {
             self.latency_refresh_countdown -= 1;
         }
         self.latency_telemetry
-            .update_output_latency(self.endpoint_latency_millis);
+            .update_output_latency(self.endpoint_latency.millis);
         if !self.callback_started {
             self.callback_started = true;
             (self.events)(json!({
@@ -2443,6 +2474,14 @@ impl AudioOutputCallback for AndroidMiPlayAudioCallback {
             output.fill((0.0, 0.0));
             return DataCallbackResult::Continue;
         }
+        // Timestamp availability lags stream startup. Establish the initial
+        // alignment with measured output latency, rather than permanently
+        // aligning to one callback (8 ms on TVs whose actual latency is 35 ms).
+        // Devices without timestamps still start after the bounded warm-up.
+        if self.endpoint_latency.waiting(self.output_started_at.elapsed()) {
+            output.fill((0.0, 0.0));
+            return DataCallbackResult::Continue;
+        }
         // The decoder holds this lock only while appending one already-decoded
         // AAC frame. Skipping a callback on contention inserts a 4 ms block of
         // silence roughly at the AAC cadence, which is much more audible than
@@ -2453,7 +2492,7 @@ impl AudioOutputCallback for AndroidMiPlayAudioCallback {
         };
         self.latency_telemetry
             .update_buffered_frames(queue.buffered_frames());
-        let synchronized_frames = synchronized_buffer_frames(self.endpoint_latency_millis);
+        let synchronized_frames = synchronized_buffer_frames(self.endpoint_latency.millis);
         if self.last_schedule_diagnostic.is_none_or(|last| last.elapsed() >= StdDuration::from_secs(5))
             && self.presentation_clock.synchronization_ready() {
             if let (Some(pts), Some(now)) = (
@@ -2469,10 +2508,11 @@ impl AudioOutputCallback for AndroidMiPlayAudioCallback {
                     "front_pts_us": pts,
                     "time_offset_us": offset,
                     "server_now_us": now,
-                    "schedule_error_us": presentation_schedule_error_micros(pts, offset, now, self.endpoint_latency_millis),
+                    "schedule_error_us": presentation_schedule_error_micros(pts, offset, now, self.endpoint_latency.millis),
                     "buffered_frames": queue.buffered_frames(),
                     "timed_playback_started": self.timed_playback_started,
-                    "output_latency_ms": self.endpoint_latency_millis,
+                    "output_latency_ms": self.endpoint_latency.millis,
+                    "output_latency_calibrated": self.endpoint_latency.calibrated(),
                     "observed_output_latency_ms": self.observed_output_latency_millis,
                     "underrun_callbacks": self.underrun_callbacks,
                 }));
@@ -2490,14 +2530,13 @@ impl AudioOutputCallback for AndroidMiPlayAudioCallback {
                     .presentation_offset_micros
                     .load(Ordering::Acquire),
                 server_now,
-                self.endpoint_latency_millis,
+                self.endpoint_latency.millis,
             ) {
             synchronization_mode = "sender_clock";
             // Align an already-late stream before the first audible frame, but
             // never splice PCM at an arbitrary waveform position once playback
-            // is running. Stable playback catches clock drift through the
-            // continuous rate controller below; hard drops here produce clicks
-            // even when Android's output track itself has no underruns.
+            // is running. Hard drops here produce clicks even when Android's
+            // output track itself has no underruns.
             if should_hard_drop_late_frames(self.timed_playback_started, schedule_error, false) {
                 let late_frames = ((-schedule_error) * MIPLAY_SOURCE_SAMPLE_RATE as f64
                     / 1_000_000.0)
@@ -2539,7 +2578,8 @@ impl AudioOutputCallback for AndroidMiPlayAudioCallback {
                 "protocol": "xiaomi_miplay",
                 "group_target_delay_ms": MIPLAY_GROUP_PLAY_DELAY_MILLIS,
                 "queue_delay_ms": queue_delay_millis,
-                "output_latency_ms": self.endpoint_latency_millis,
+                "output_latency_ms": self.endpoint_latency.millis,
+                "output_latency_calibrated": self.endpoint_latency.calibrated(),
                 "output_callback_frames": callback_frames,
                 "output_sample_rate": output_sample_rate,
                 "synchronization_mode": synchronization_mode,
@@ -2653,8 +2693,8 @@ fn open_android_miplay_stream(
         callback_started: false,
         signal_started: false,
         synchronization_started: false,
-        endpoint_latency_millis: 0.0,
-        endpoint_latency_initialized: false,
+        endpoint_latency: OutputLatencyEstimator::default(),
+        output_started_at: Instant::now(),
         latency_refresh_countdown: 0,
         timed_playback_started: false,
         last_schedule_diagnostic: None,
@@ -3085,6 +3125,7 @@ mod tests {
     use super::{
         AdtsFramer, ClockFitPoint, MAX_RTSP_MESSAGE_BYTES, MIPLAY_RTP_CLOCK_HZ,
         MIPLAY_SAMPLE_RATE_HZ, MIPLAY_SOURCE_CHANNELS, MiPlayLatencyTelemetry, PcmQueue,
+        OutputLatencyEstimator,
         StreamKeys, TsDemuxer, adts_bitrate, adts_sample_rate, decode_timer_sample,
         extend_wrapping_counter, fit_clock_line, is_adts, normalized_output_latency_millis,
         parse_rtp_packet, parse_timer_server, pes_private_data_iv, pes_pts_micros,
@@ -3377,6 +3418,50 @@ mod tests {
             normalized_output_latency_millis(Some(400.0), 48_000, 240),
             250.0
         );
+    }
+
+    #[test]
+    fn android_waits_for_real_latency_before_establishing_playout_alignment() {
+        let mut latency = OutputLatencyEstimator::default();
+        latency.observe(None, 8.0);
+        assert!(latency.waiting(StdDuration::from_millis(100)));
+        latency.observe(Some(34.75), 8.0);
+        // The first real timestamp replaces the fallback, without averaging.
+        assert_eq!(latency.millis, 34.75);
+        assert!(latency.waiting(StdDuration::from_millis(250)));
+        latency.observe(Some(34.75), 8.0);
+        assert!(!latency.waiting(StdDuration::from_millis(400)));
+        let front_pts = 1_000_000.0;
+        let server_now = 1_000_000;
+        let aligned_offset = 34_750;
+        assert_eq!(presentation_schedule_error_micros(
+            front_pts, aligned_offset, server_now, latency.millis,
+        ), 0.0);
+        // Aligning with the old 8 ms fallback leaves exactly the observed lag.
+        assert_eq!(presentation_schedule_error_micros(
+            front_pts, 8_000, server_now, latency.millis,
+        ), -26_750.0);
+    }
+
+    #[test]
+    fn android_keeps_measured_latency_when_timestamp_temporarily_unavailable() {
+        let mut latency = OutputLatencyEstimator::default();
+        latency.observe(Some(35.0), 8.0);
+        latency.observe(Some(35.0), 8.0);
+        for invalid in [None, Some(f64::NAN), Some(-1.0), Some(f64::INFINITY)] {
+            latency.observe(invalid, 8.0);
+            assert_eq!(latency.millis, 35.0);
+            assert!(latency.calibrated());
+        }
+    }
+
+    #[test]
+    fn android_without_hardware_timestamps_does_not_wait_forever() {
+        let mut latency = OutputLatencyEstimator::default();
+        latency.observe(None, 8.0);
+        assert!(latency.waiting(StdDuration::from_millis(999)));
+        assert!(!latency.waiting(StdDuration::from_secs(1)));
+        assert!(!latency.calibrated());
     }
 
     #[test]
