@@ -48,7 +48,7 @@ final class ReceiverModel: ObservableObject {
                 let settings = receiver.settings()
                 let networks = try networkInterfaces()
                 let outputs = try audioDevices()
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.receiver = receiver
                     self.name = settings.name; self.interfaceName = settings.interfaceName
@@ -59,17 +59,17 @@ final class ReceiverModel: ObservableObject {
                     self.subscription = receiver.subscribe(listener: listener)
                     self.initialized = true
                     self.timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-                        Task { @MainActor in self?.refreshDevices() }
+                        Task { @MainActor [weak self] in self?.refreshDevices() }
                     }
                 }
-            } catch { DispatchQueue.main.async { self?.error = String(describing: error) } }
+            } catch { DispatchQueue.main.async { [weak self] in self?.error = String(describing: error) } }
         }
         let center = NSWorkspace.shared.notificationCenter
         center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.suspendForSleep() }
+            Task { @MainActor [weak self] in self?.suspendForSleep() }
         }
         center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.sleeping = false
                 self?.retryCount = 0
                 if self?.wantsReceiving == true { self?.restartApplied() }
@@ -105,13 +105,13 @@ final class ReceiverModel: ObservableObject {
             do {
                 try receiver.start(settings: settings)
                 let state = receiver.snapshot()
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.busy = false; self.accept(state)
                     self.signature = self.deviceSignature(settings: settings)
                 }
             } catch {
-                DispatchQueue.main.async { self?.busy = false; self?.error = String(describing: error); self?.snapshot = receiver.snapshot() }
+                DispatchQueue.main.async { [weak self] in self?.busy = false; self?.error = String(describing: error); self?.snapshot = receiver.snapshot() }
             }
         }
     }
@@ -125,7 +125,7 @@ final class ReceiverModel: ObservableObject {
         backend.async { [weak self] in
             receiver.stop()
             let state = receiver.snapshot()
-            DispatchQueue.main.async { self?.busy = false; self?.accept(state) }
+            DispatchQueue.main.async { [weak self] in self?.busy = false; self?.accept(state) }
         }
     }
     func setVolume() {
@@ -133,7 +133,7 @@ final class ReceiverModel: ObservableObject {
         let value = UInt32(volume)
         backend.async { [weak self] in
             do { try receiver.setVolume(volume: value) }
-            catch { DispatchQueue.main.async { self?.error = String(describing: error) } }
+            catch { DispatchQueue.main.async { [weak self] in self?.error = String(describing: error) } }
         }
     }
     func refreshDevices() {
@@ -141,7 +141,7 @@ final class ReceiverModel: ObservableObject {
         backend.async { [weak self] in
             do {
                 let nets = try networkInterfaces(); let audio = try audioDevices()
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.networks = nets; self.outputs = audio
                     guard self.wantsReceiving, let settings = self.appliedSettings else { return }
@@ -153,7 +153,7 @@ final class ReceiverModel: ObservableObject {
                         self.retryCount += 1; self.restartApplied()
                     }
                 }
-            } catch { DispatchQueue.main.async { self?.error = "无法读取网络或音频设备：\(error)" } }
+            } catch { DispatchQueue.main.async { [weak self] in self?.error = "无法读取网络或音频设备：\(error)" } }
         }
     }
     private func deviceSignature(settings: Settings) -> String {
@@ -172,7 +172,9 @@ final class ReceiverModel: ObservableObject {
     func openLogs() { NSWorkspace.shared.open(root.appendingPathComponent("logs")) }
     func terminate(completion: @escaping @MainActor @Sendable () -> Void) {
         timer?.invalidate(); timer = nil; wantsReceiving = false
-        guard let receiver else { completion(); return }
+        // AppKit must receive the termination reply after terminateLater returns,
+        // including when startup failed before a receiver was constructed.
+        guard let receiver else { DispatchQueue.main.async { completion() }; return }
         let token = subscription
         backend.async {
             if let token { receiver.unsubscribe(token: token) }
