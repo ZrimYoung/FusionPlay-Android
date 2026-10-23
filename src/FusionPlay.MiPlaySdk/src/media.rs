@@ -34,6 +34,16 @@ use symphonia::default::codecs::AacDecoder;
 
 pub type EventEmitter = Arc<dyn Fn(Value) + Send + Sync + 'static>;
 
+#[cfg(target_os = "macos")]
+#[path = "macos_audio.rs"]
+mod macos_audio;
+#[cfg(target_os = "macos")]
+use macos_audio::open_native_audio_output;
+#[cfg(target_os = "macos")]
+type DecoderQueue = Arc<macos_audio::PcmRing>;
+#[cfg(not(target_os = "macos"))]
+type DecoderQueue = Arc<Mutex<PcmQueue>>;
+
 const POSITION_RESUME_SETTLING_WINDOW: StdDuration = StdDuration::from_millis(1_500);
 
 /**
@@ -2031,7 +2041,7 @@ const MIPLAY_OUTPUT_LATENCY_SMOOTHING: f64 = 0.2;
 
 struct AacPlayer {
     decoder: AacDecoder,
-    queue: Arc<Mutex<PcmQueue>>,
+    queue: DecoderQueue,
     _stream: NativeAudioStream,
     adts_framer: AdtsFramer,
     timestamp: i64,
@@ -2044,8 +2054,11 @@ struct AacPlayer {
     events: EventEmitter,
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "macos")))]
 type NativeAudioStream = cpal::Stream;
+
+#[cfg(target_os = "macos")]
+type NativeAudioStream = macos_audio::MacAudioStream;
 
 #[cfg(target_os = "android")]
 type NativeAudioStream = AndroidMiPlayAudioOutput;
@@ -2200,6 +2213,12 @@ impl AacPlayer {
                 }));
             }
         }
+        #[cfg(target_os = "macos")]
+        {
+            self.queue.push_timed(&self.decoded_samples, media_pts_micros);
+            self.latency_telemetry.update_buffered_frames(self.queue.buffered_frames());
+        }
+        #[cfg(not(target_os = "macos"))]
         if let Ok(mut queue) = self.queue.lock() {
             queue.push_timed(&self.decoded_samples, media_pts_micros);
             self.latency_telemetry
@@ -2295,7 +2314,7 @@ impl AdtsFramer {
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "macos")))]
 fn open_native_audio_output(
     requested_device: Option<&str>,
     paused: Arc<AtomicBool>,
@@ -2830,7 +2849,7 @@ fn manage_android_miplay_output(
 #[cfg(target_os = "android")]
 const ANDROID_MIPLAY_AUDIO_RESTART_DELAYS_MILLIS: [u64; 6] = [50, 100, 200, 400, 800, 1_600];
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "macos")))]
 fn build_output<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,

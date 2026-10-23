@@ -1004,6 +1004,10 @@ fn create_responder_socket(
     socket
         .set_reuse_address(true)
         .context("enable Lyra discovery socket reuse")?;
+    // Darwin requires SO_REUSEPORT as well as SO_REUSEADDR to share 5353
+    // with the system mDNSResponder. Do not change Android binding policy.
+    #[cfg(target_os = "macos")]
+    socket.set_reuse_port(true).context("share mDNS port with macOS Bonjour")?;
     // mDNS questions are addressed to 224.0.0.251, not to the adapter's
     // unicast address.  Binding the receive socket to `local_ip` makes local
     // unicast probes appear healthy while external multicast questions can

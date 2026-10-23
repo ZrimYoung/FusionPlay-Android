@@ -33,6 +33,9 @@ oboe = "0.6.1"
 [target.'cfg(not(target_os = "android"))'.dependencies]
 cpal = "0.17"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+socket2 = { version = "0.6", features = ["all"] }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
