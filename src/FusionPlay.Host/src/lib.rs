@@ -1,6 +1,6 @@
 //! Platform-neutral host contract. Neither Swift nor the Android JNI API is
 //! coupled to the SDK's diagnostic JSON schema.
-use fusionplay_miplay_sdk::{MiPlayReceiver, ReceiverConfig, ReceiverIdentity};
+use fusionplay_miplay_sdk::{MediaAction, MiPlayReceiver, ReceiverConfig, ReceiverIdentity};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::os::unix::{
@@ -73,11 +73,39 @@ pub enum Phase {
     Paused,
     Failed,
 }
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum PlaybackCommand {
+    Play,
+    Pause,
+    Previous,
+    Next,
+}
+impl From<PlaybackCommand> for MediaAction {
+    fn from(command: PlaybackCommand) -> Self {
+        match command {
+            PlaybackCommand::Play => Self::Resume,
+            PlaybackCommand::Pause => Self::Pause,
+            PlaybackCommand::Previous => Self::Previous,
+            PlaybackCommand::Next => Self::Next,
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct CommandOutcome {
+    pub dispatched: bool,
+    pub confirmed: bool,
+}
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct Snapshot {
     pub phase: Phase,
     pub title: String,
     pub artist: String,
+    pub album: String,
+    pub track_id: String,
+    pub artwork_url: String,
+    pub duration_ms: Option<u64>,
+    pub position_ms: Option<u64>,
+    pub controls_available: bool,
     pub volume: u32,
     pub message: String,
     pub address: String,
@@ -95,6 +123,12 @@ impl Default for Snapshot {
             phase: Phase::Stopped,
             title: String::new(),
             artist: String::new(),
+            album: String::new(),
+            track_id: String::new(),
+            artwork_url: String::new(),
+            duration_ms: None,
+            position_ms: None,
+            controls_available: false,
             volume: 50,
             message: "接收器未启动".into(),
             address: String::new(),
@@ -363,6 +397,39 @@ impl Receiver {
         let _operation = self.operations.lock().unwrap();
         self.stop_inner();
     }
+    pub fn control(&self, command: PlaybackCommand) -> Result<CommandOutcome> {
+        let _operation = self.operations.lock().unwrap();
+        if !self.snapshot().controls_available {
+            return Err(receiver_error("No active media session"));
+        }
+        let controller = self
+            .core
+            .lock()
+            .unwrap()
+            .as_ref()
+            .ok_or_else(|| receiver_error("Receiver is stopped"))?
+            .controller();
+        let outcome = controller
+            .send_confirmed(command.into(), Duration::from_millis(1500))
+            .map_err(receiver_error)?;
+        // The SDK immediately gates local output after a dispatched pause. A
+        // remote confirmation is reported separately, never fabricated.
+        if outcome.dispatched || outcome.confirmed {
+            match command {
+                PlaybackCommand::Pause => self.emit(serde_json::json!({
+                    "event":"host_control_pause", "confirmed": outcome.confirmed
+                })),
+                PlaybackCommand::Play => {
+                    self.emit(serde_json::json!({"event":"host_control_resume"}))
+                }
+                _ => {}
+            }
+        }
+        Ok(CommandOutcome {
+            dispatched: outcome.dispatched,
+            confirmed: outcome.confirmed,
+        })
+    }
     pub fn set_volume(&self, volume: u32) -> Result<()> {
         let _operation = self.operations.lock().unwrap();
         if volume > 100 {
@@ -468,6 +535,7 @@ fn reduce(state: &mut Snapshot, value: &Value) {
             state.message = "等待手机连接".into();
         }
         "interconnect_stage" if text("stage") == "media_session_established" => {
+            state.controls_available = true;
             state.phase = Phase::Connected;
             state.message = "媒体会话已连接，等待声音".into();
         }
@@ -482,7 +550,9 @@ fn reduce(state: &mut Snapshot, value: &Value) {
             state.underruns = value["underruns"].as_u64().unwrap_or(0);
             state.dropped_frames = value["dropped_frames"].as_u64().unwrap_or(0);
             state.resyncs = value["resyncs"].as_u64().unwrap_or(0);
-            if value["rendering"].as_bool() == Some(true) && state.phase != Phase::Failed {
+            if value["rendering"].as_bool() == Some(true)
+                && matches!(state.phase, Phase::Connected | Phase::Playing)
+            {
                 state.phase = Phase::Playing;
                 state.message = "正在播放".into();
             } else if state.phase == Phase::Playing {
@@ -502,23 +572,84 @@ fn reduce(state: &mut Snapshot, value: &Value) {
                 "等待手机连接"
             }
             .into();
+            if state.phase == Phase::Ready {
+                clear_media(state);
+            }
+        }
+        "playback_state" if value["playing"].as_bool() == Some(true) => {
+            if state.controls_available && state.phase == Phase::Paused {
+                state.phase = Phase::Connected;
+                state.message = "等待音频数据".into();
+            }
+        }
+        "host_control_pause" if state.controls_available => {
+            state.phase = Phase::Paused;
+            state.message = if value["confirmed"] == true {
+                "已暂停"
+            } else {
+                "Mac 输出已暂停，手机状态待确认"
+            }
+            .into();
+        }
+        "host_control_resume" if state.controls_available => {
+            if state.phase == Phase::Paused {
+                state.phase = Phase::Connected;
+                state.message = "已请求播放，等待音频数据".into();
+            }
         }
         "media_channel_closed" | "stream_stopped" => {
+            clear_media(state);
             state.phase = Phase::Ready;
             state.message = "音频会话已结束，等待重新投送".into();
         }
         "media_info" => {
-            state.title = text("title");
-            state.artist = text("artist");
+            let id = text("track_id");
+            if !id.is_empty() && id != state.track_id {
+                state.title.clear();
+                state.artist.clear();
+                state.album.clear();
+                state.artwork_url.clear();
+                state.duration_ms = None;
+                state.position_ms = None;
+                state.track_id = id;
+            }
+            for (field, key) in [
+                (&mut state.title, "title"),
+                (&mut state.artist, "artist"),
+                (&mut state.album, "album"),
+                (&mut state.artwork_url, "artwork"),
+            ] {
+                if let Some(value) = value[key].as_str().filter(|v| !v.is_empty()) {
+                    *field = value.into();
+                }
+            }
+            if let Some(ms) = value["duration_ms"].as_u64().filter(|v| *v > 0) {
+                state.duration_ms = Some(ms);
+            }
+            if let Some(ms) = value["position_ms"].as_u64() {
+                state.position_ms = Some(ms);
+            }
         }
+        "progress" if state.controls_available => state.position_ms = value["position_ms"].as_u64(),
         "volume" => state.volume = value["percent"].as_u64().unwrap_or(50).min(100) as u32,
         "audio_output_ready" => state.output = text("device_name"),
         "host_error" | "error" => {
+            clear_media(state);
             state.phase = Phase::Failed;
             state.message = text("message");
         }
         _ => {}
     }
+}
+fn clear_media(state: &mut Snapshot) {
+    state.controls_available = false;
+    state.title.clear();
+    state.artist.clear();
+    state.album.clear();
+    state.track_id.clear();
+    state.artwork_url.clear();
+    state.duration_ms = None;
+    state.position_ms = None;
 }
 // Allowlist: never persist authentication, packets, artwork or source addresses.
 fn write_diagnostic(dir: &Path, event: &Value) {
@@ -579,6 +710,85 @@ fn write_diagnostic(dir: &Path, event: &Value) {
 mod tests {
     use super::*;
     #[test]
+    fn media_lifecycle_preserves_partial_updates_and_clears_old_tracks() {
+        let mut state = Snapshot::default();
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"interconnect_stage", "stage":"media_session_established"}),
+        );
+        assert!(state.controls_available);
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"media_info", "track_id":"one", "title":"First", "duration_ms":120000, "position_ms":5000, "artwork":"https://example.invalid/a.jpg"}),
+        );
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"media_info", "track_id":"one", "duration_ms":0, "position_ms":null}),
+        );
+        assert_eq!(state.title, "First");
+        assert_eq!(state.duration_ms, Some(120000));
+        assert_eq!(state.position_ms, Some(5000));
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"media_info", "track_id":"two", "title":"Second"}),
+        );
+        assert_eq!(state.title, "Second");
+        assert_eq!(state.duration_ms, None);
+        assert_eq!(state.position_ms, None);
+        assert!(state.artwork_url.is_empty());
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"progress", "position_ms":8000}),
+        );
+        assert_eq!(state.position_ms, Some(8000));
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"media_channel_closed"}),
+        );
+        assert!(!state.controls_available);
+        assert!(state.title.is_empty());
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"progress", "position_ms":9000}),
+        );
+        assert_eq!(state.position_ms, None);
+    }
+    #[test]
+    fn pause_survives_buffered_audio_and_resume_waits_for_output() {
+        let mut state = Snapshot {
+            controls_available: true,
+            phase: Phase::Playing,
+            ..Snapshot::default()
+        };
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"host_control_pause", "confirmed":false}),
+        );
+        assert_eq!(state.phase, Phase::Paused);
+        assert!(state.message.contains("待确认"));
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"audio_health", "rendering":true}),
+        );
+        assert_eq!(state.phase, Phase::Paused);
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"host_control_resume"}),
+        );
+        assert_eq!(state.phase, Phase::Connected);
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"audio_health", "rendering":true}),
+        );
+        assert_eq!(state.phase, Phase::Playing);
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"playback_state", "playing":false, "session_active":false}),
+        );
+        assert!(!state.controls_available);
+        assert_eq!(state.phase, Phase::Ready);
+    }
+    #[test]
     fn handshake_is_not_playback() {
         let mut s = Snapshot::default();
         reduce(&mut s, &serde_json::json!({"event":"receiver_ready"}));
@@ -602,6 +812,14 @@ mod tests {
     fn identity_persistence_and_exclusive_ownership() {
         let dir = std::env::temp_dir().join(format!("fusionplay-test-{}", uuid::Uuid::new_v4()));
         let r = Receiver::new(dir.to_string_lossy().into()).unwrap();
+        for command in [
+            PlaybackCommand::Play,
+            PlaybackCommand::Pause,
+            PlaybackCommand::Previous,
+            PlaybackCommand::Next,
+        ] {
+            assert!(r.control(command).is_err());
+        }
         let first = load_identity(&dir).unwrap();
         assert!(matches!(
             Receiver::new(dir.to_string_lossy().into()),
