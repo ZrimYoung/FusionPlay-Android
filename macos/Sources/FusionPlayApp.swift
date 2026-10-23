@@ -23,7 +23,7 @@ struct FusionPlayApp: App {
         }.menuBarExtraStyle(.window)
         Window("FusionPlay · 正在播放", id: "player") {
             PlayerView(model: model)
-        }.defaultSize(width: 400, height: 560)
+        }.defaultSize(width: 760, height: 434)
           .windowResizability(.contentSize)
         Window("FusionPlay 设置", id: "settings") {
             SettingsPanel(model: model)
@@ -99,58 +99,156 @@ struct PlaybackControls: View {
 
 struct PlayerView: View {
     @ObservedObject var model: ReceiverModel
-    private func time(_ milliseconds: UInt64) -> String {
+    @Environment(\.colorScheme) private var colorScheme
+    private var playing: Bool { model.snapshot?.phase == .playing }
+    private var title: String {
+        if let title = model.snapshot?.title, !title.isEmpty { return title }
+        return model.snapshot?.controlsAvailable == true ? "手机正在投送" : "等待你的音乐"
+    }
+    private var artist: String {
+        if let artist = model.snapshot?.artist, !artist.isEmpty { return artist }
+        if model.snapshot?.controlsAvailable == true { return "来自手机的音乐" }
+        return model.wantsReceiving ? "在手机妙播中选择这台 Mac" : "启动接收，让音乐在 Mac 继续"
+    }
+    private var footer: String {
+        if !model.error.isEmpty { return model.error }
+        if !model.controlMessage.isEmpty { return model.controlMessage }
+        return model.wantsReceiving ? "关闭窗口后仍会继续接收" : "准备接收来自手机的音乐"
+    }
+    private func time(_ milliseconds: UInt64?) -> String {
+        guard let milliseconds else { return "–:––" }
         let seconds = milliseconds / 1000
         return String(format: "%llu:%02llu", seconds / 60, seconds % 60)
     }
     var body: some View {
-        VStack(spacing: 18) {
-            HStack {
-                Label("FusionPlay", systemImage: "hifispeaker.fill").font(.headline)
-                Spacer()
-                Text(model.phaseLabel).font(.caption).foregroundStyle(.secondary)
-            }
-            ZStack {
-                RoundedRectangle(cornerRadius: 16).fill(.quaternary)
-                if let artwork = model.artwork {
-                    Image(nsImage: artwork).resizable().scaledToFit()
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Label("FusionPlay", systemImage: "hifispeaker.fill")
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                    Spacer(minLength: 20)
+                    cover
+                    Spacer(minLength: 20)
+                    HStack(spacing: 6) {
+                        Image(systemName: "iphone.radiowaves.left.and.right")
+                        Text("手机投送 · Mac 接收")
+                    }.font(.system(size: 11)).foregroundStyle(.secondary)
+                }.padding(28).frame(width: 300)
+                    .background(Color.primary.opacity(colorScheme == .dark ? 0.035 : 0.025))
+                Rectangle().fill(Color.primary.opacity(0.07)).frame(width: 1)
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack {
+                        Text("正在播放").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                        Spacer()
+                        HStack(spacing: 6) {
+                            Circle().fill(playing ? Color.green : Color.secondary.opacity(0.5)).frame(width: 6, height: 6)
+                            Text(model.phaseLabel).font(.system(size: 11, weight: .medium))
+                        }.padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(Color.primary.opacity(0.05), in: Capsule())
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(title).font(.system(size: 27, weight: .semibold))
+                            .lineLimit(2).textSelection(.enabled).help(title)
+                        Text(artist).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1).help(artist)
+                        if let album = model.snapshot?.album, !album.isEmpty {
+                            Text(album).font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1).help(album)
+                        }
+                    }.frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
+                    Spacer(minLength: 0)
+                    progress
+                    HStack(spacing: 26) {
+                        Spacer()
+                        transport("backward.end.fill", label: "上一曲") { model.control(.previous) }
+                        Button { model.togglePlayback() } label: {
+                            Image(systemName: playing ? "pause.fill" : "play.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .offset(x: playing ? 0 : 1)
+                                .frame(width: 52, height: 52)
+                                .foregroundStyle(model.canControl ? Color.white : Color.secondary)
+                                .background(model.canControl ? Color.accentColor : Color.primary.opacity(0.08), in: Circle())
+                        }.buttonStyle(PlayerTransportStyle()).disabled(!model.canControl)
+                            .help(playing ? "暂停" : "播放").accessibilityLabel(playing ? "暂停" : "播放")
+                        transport("forward.end.fill", label: "下一曲") { model.control(.next) }
+                        Spacer()
+                    }
+                    HStack(spacing: 10) {
+                        Image(systemName: "speaker.wave.2").font(.system(size: 12)).foregroundStyle(.secondary)
+                        Slider(value: $model.volume, in: 0...100) { editing in if !editing { model.setVolume() } }
+                            .controlSize(.small).accessibilityLabel("接收音量")
+                        Text("\(Int(model.volume.rounded()))%")
+                            .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).frame(width: 34, alignment: .trailing)
+                    }.disabled(!model.initialized)
+                }.padding(28).frame(maxWidth: .infinity)
+            }.frame(height: 380)
+            Divider()
+            HStack(spacing: 10) {
+                Image(systemName: model.error.isEmpty ? "dot.radiowaves.left.and.right" : "exclamationmark.circle")
+                    .foregroundStyle(model.error.isEmpty ? Color.secondary : Color.red)
+                Text(footer).font(.system(size: 11))
+                    .foregroundStyle(model.error.isEmpty ? Color.secondary : Color.red)
+                    .lineLimit(2).help(footer).textSelection(.enabled)
+                Spacer(minLength: 12)
+                if model.wantsReceiving {
+                    Button("停止接收") { model.stop() }.buttonStyle(.bordered)
+                        .disabled(model.busy || !model.initialized)
                 } else {
-                    Image(systemName: "music.note").font(.system(size: 70, weight: .light))
-                        .foregroundStyle(.secondary).accessibilityLabel("暂无封面")
+                    Button("启动接收") { model.start() }.buttonStyle(.borderedProminent)
+                        .disabled(model.busy || !model.initialized)
                 }
-            }.frame(width: 230, height: 230).clipShape(RoundedRectangle(cornerRadius: 16))
-            VStack(spacing: 5) {
-                Text(model.snapshot?.title.isEmpty == false ? model.snapshot!.title : "等待手机投送")
-                    .font(.title2.weight(.semibold)).lineLimit(2).textSelection(.enabled)
-                if let state = model.snapshot {
-                    Text([state.artist, state.album].filter { !$0.isEmpty }.joined(separator: " · "))
-                        .foregroundStyle(.secondary).lineLimit(2)
-                }
-            }.frame(maxWidth: .infinity)
-            if let state = model.snapshot, let duration = state.durationMs, duration > 0 {
-                VStack(spacing: 5) {
-                    if let position = state.positionMs {
-                        ProgressView(value: Double(min(position, duration)), total: Double(duration))
-                        HStack { Text(time(position)); Spacer(); Text(time(duration)) }
-                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    } else { Text("总时长 \(time(duration)) · 手机未提供播放位置").font(.caption).foregroundStyle(.secondary) }
-                }
+            }.controlSize(.small).padding(.horizontal, 24).frame(height: 53)
+        }.frame(width: 760).background(Color(nsColor: .windowBackgroundColor))
+    }
+    private var cover: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 14).fill(
+                LinearGradient(colors: [Color.accentColor.opacity(0.16), Color.primary.opacity(0.04)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing))
+            if let artwork = model.artwork {
+                Image(nsImage: artwork).resizable().scaledToFit()
             } else {
-                Text("手机尚未提供时长和进度").font(.caption).foregroundStyle(.secondary)
+                Circle().fill(Color.primary.opacity(0.035)).frame(width: 178, height: 178)
+                ForEach([178.0, 150.0, 122.0], id: \.self) { size in
+                    Circle().stroke(Color.primary.opacity(0.06), lineWidth: 1).frame(width: size, height: size)
+                }
+                Circle().fill(Color.accentColor.opacity(0.12)).frame(width: 72, height: 72)
+                Image(systemName: "music.note").font(.system(size: 28, weight: .light))
+                    .foregroundStyle(Color.accentColor.opacity(0.75))
             }
-            PlaybackControls(model: model)
+        }.frame(width: 244, height: 244).clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.06), lineWidth: 1))
+            .shadow(color: .black.opacity(colorScheme == .dark ? 0.16 : 0.06), radius: 12, y: 6)
+            .accessibilityLabel(model.artwork == nil ? "暂无专辑封面" : "专辑封面")
+    }
+    private var progress: some View {
+        let duration = model.snapshot?.durationMs
+        let position = model.snapshot?.positionMs
+        let fraction = duration.flatMap { duration in
+            position.map { duration > 0 ? min(Double($0) / Double(duration), 1) : 0 }
+        } ?? 0
+        return VStack(spacing: 8) {
+            GeometryReader { geometry in
+                Capsule().fill(Color.primary.opacity(0.09))
+                Capsule().fill(Color.accentColor).frame(width: geometry.size.width * fraction)
+            }.frame(height: 4).accessibilityLabel("播放进度")
+                .accessibilityValue("\(time(position)) / \(time(duration))")
             HStack {
-                Image(systemName: "speaker.wave.2")
-                Slider(value: $model.volume, in: 0...100) { editing in if !editing { model.setVolume() } }
-                Text("\(Int(model.volume.rounded()))%").monospacedDigit().frame(width: 42)
-            }.disabled(!model.initialized)
-            Text(model.controlMessage.isEmpty ? (model.snapshot?.message ?? "准备中") : model.controlMessage)
-                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            if !model.error.isEmpty { Text(model.error).font(.caption).foregroundStyle(.red) }
-            Button(model.wantsReceiving ? "停止接收" : "启动接收") {
-                if model.wantsReceiving { model.stop() } else { model.start() }
-            }.disabled(model.busy || !model.initialized)
-        }.padding(24).frame(width: 360)
+                Text(time(position)); Spacer(); Text(time(duration))
+            }.font(.system(size: 10).monospacedDigit()).foregroundStyle(.tertiary)
+        }.help(duration == nil ? "手机尚未提供时长，进度随手机上报更新" : "进度随手机上报更新，暂不支持拖动")
+    }
+    private func transport(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 16, weight: .medium)).frame(width: 32, height: 36)
+                .foregroundStyle(model.canControl ? Color.primary : Color.secondary.opacity(0.4))
+        }.buttonStyle(PlayerTransportStyle()).disabled(!model.canControl).help(label).accessibilityLabel(label)
+    }
+}
+
+struct PlayerTransportStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
     }
 }
 
