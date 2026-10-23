@@ -34,6 +34,19 @@ const SESSION_KEY_SALT: [u8; 32] = [
 
 pub struct LyraControlServer {
     port: u16,
+    shutdown: Arc<AtomicBool>,
+    worker: Option<thread::JoinHandle<()>>,
+}
+
+impl Drop for LyraControlServer {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take() {
+            if worker.thread().id() != thread::current().id() {
+                let _ = worker.join();
+            }
+        }
+    }
 }
 
 impl LyraControlServer {
@@ -95,7 +108,8 @@ pub fn start_lyra_server(
     let local = socket
         .local_addr()
         .context("read Xiaomi Lyra command address")?;
-    thread::Builder::new()
+    let worker_shutdown = Arc::clone(&shutdown);
+    let worker = thread::Builder::new()
         .name("miplay-lyra-control".to_owned())
         .spawn(move || {
             events(json!({
@@ -111,14 +125,31 @@ pub fn start_lyra_server(
                 receiver_name,
                 platform,
                 device_type,
-                shutdown,
+                worker_shutdown,
                 events,
             );
         })
         .context("spawn Xiaomi Lyra command server")?;
     Ok(LyraControlServer {
         port: LYRA_COMMAND_PORT,
+        shutdown,
+        worker: Some(worker),
     })
+}
+
+#[cfg(test)]
+#[test]
+fn dropping_lyra_releases_port_before_restart() {
+    for _ in 0..3 {
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let server = start_lyra_server(Ipv4Addr::LOCALHOST, 8899, "12345678".into(),
+            "Lifecycle test".into(), "test".into(), MiPlayDeviceType::Television,
+            Arc::clone(&shutdown), Arc::new(|_| {})).unwrap();
+        drop(server);
+        assert!(shutdown.load(Ordering::Acquire));
+        let probe = UdpSocket::bind((Ipv4Addr::LOCALHOST, LYRA_COMMAND_PORT)).unwrap();
+        drop(probe);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
