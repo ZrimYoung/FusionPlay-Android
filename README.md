@@ -4,6 +4,8 @@ FusionPlay 是一个面向全平台的局域网音乐投放接收器，支持 Mi
 
 FusionPlay Android 最低支持 Android 5.0（API 21） 并对 Android TV 做了遥控器适配
 
+Mac 原生 MiPlay 接收器目前在独立开发分支验证，使用说明、构建及实播验收状态见 [macos/README.md](macos/README.md)。Android 构建入口保持原样。
+
 ## 目录结构
 
 ```text

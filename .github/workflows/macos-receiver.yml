@@ -1,0 +1,61 @@
+name: Mac receiver and shared SDK compatibility
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/macos-receiver]
+  pull_request:
+    paths: ['macos/**', 'src/FusionPlay.Host/**', 'src/FusionPlay.MiPlaySdk/**', 'src/FusionPlay.AndroidIfAddrs/**', '.github/workflows/macos-receiver.yml']
+permissions:
+  contents: read
+concurrency:
+  group: macos-receiver-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  mac:
+    runs-on: macos-14
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Test SDK and host
+        shell: bash
+        run: |
+          source macos/scripts/env.sh
+          cargo test --locked --manifest-path src/FusionPlay.MiPlaySdk/Cargo.toml
+          cargo test --locked --manifest-path src/FusionPlay.Host/Cargo.toml
+          python3 -m unittest discover -s macos/Tests
+      - name: Build native app
+        run: bash macos/scripts/build.sh
+      - name: Test Swift binding lifecycle
+        run: bash macos/scripts/test-bridge.sh
+      - name: Archive app
+        run: bash macos/scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FusionPlay-Mac-arm64-test-build
+          path: ../artifacts/FusionPlay-Mac-arm64.zip
+  android-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Android toolchain
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-linux-android armv7-linux-androideabi
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.2.13676358'
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+      - name: Check unchanged Android output path
+        shell: bash
+        run: |
+          toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$toolchain/aarch64-linux-android21-clang"
+          export CXX_aarch64_linux_android="$toolchain/aarch64-linux-android21-clang++"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          export CC_armv7_linux_androideabi="$toolchain/armv7a-linux-androideabi21-clang"
+          export CXX_armv7_linux_androideabi="$toolchain/armv7a-linux-androideabi21-clang++"
+          export AR_armv7_linux_androideabi="$toolchain/llvm-ar"
+          cargo check --locked --target aarch64-linux-android --manifest-path src/FusionPlay.MiPlaySdk/Cargo.toml
+          cargo check --locked --target armv7-linux-androideabi --manifest-path src/FusionPlay.MiPlaySdk/Cargo.toml

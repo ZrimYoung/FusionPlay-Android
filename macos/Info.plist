@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>tech.zrim.fusionplay.mac</string>
+<key>CFBundleName</key><string>FusionPlay Mac</string>
+<key>CFBundleExecutable</key><string>FusionPlayMac</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>LSMinimumSystemVersion</key><string>14.0</string>
+<key>LSUIElement</key><true/>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSLocalNetworkUsageDescription</key><string>FusionPlay 需要访问局域网，以便手机发现这台 Mac 并向它投送音乐。</string>
+<key>NSBonjourServices</key><array><string>_lyra-mdns._udp</string><string>_mi-connect._udp</string></array>
+</dict></plist>
