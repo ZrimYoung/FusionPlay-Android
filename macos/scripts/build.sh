@@ -16,7 +16,7 @@ xcrun swiftc -swift-version 5 -O -parse-as-library -target arm64-apple-macosx14.
   -I "$GENERATED" -Xcc "-fmodule-map-file=$GENERATED/FusionPlayBridgeFFI.modulemap" \
   -L "$APP/Contents/Frameworks" -lfusionplay_host \
   -Xlinker -rpath -Xlinker '@executable_path/../Frameworks' \
-  -framework SwiftUI -framework AppKit \
+  -framework SwiftUI -framework AppKit -framework MediaPlayer \
   "$GENERATED/FusionPlayBridge.swift" "$REPO"/macos/Sources/*.swift \
   -o "$APP/Contents/MacOS/FusionPlayMac"
 cp "$REPO/LICENSE" "$APP/Contents/Resources/LICENSE"

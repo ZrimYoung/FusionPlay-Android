@@ -6,6 +6,7 @@ xcrun swiftc -swift-version 5 -O -parse-as-library -target arm64-apple-macosx14.
   -module-cache-path "$PROJECT/cache/swift" -I "$GENERATED" \
   -Xcc "-fmodule-map-file=$GENERATED/FusionPlayBridgeFFI.modulemap" \
   -L "$LIBRARY" -lfusionplay_host -Xlinker -rpath -Xlinker "$LIBRARY" \
-  "$GENERATED/FusionPlayBridge.swift" "$REPO/macos/Tests/BridgeSmoke.swift" \
+  -framework AppKit -framework MediaPlayer \
+  "$GENERATED/FusionPlayBridge.swift" "$REPO/macos/Sources/SystemMedia.swift" "$REPO/macos/Tests/BridgeSmoke.swift" \
   -o "$PROJECT/build/bridge-smoke"
 "$PROJECT/build/bridge-smoke" "$PROJECT/tmp/bridge-test-$$" "$@"

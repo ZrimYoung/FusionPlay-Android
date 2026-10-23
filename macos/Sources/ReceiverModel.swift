@@ -23,6 +23,9 @@ final class ReceiverModel: ObservableObject {
     @Published var busy = false
     @Published var initialized = false
     @Published var wantsReceiving = false
+    @Published var controlBusy = false
+    @Published var controlMessage = ""
+    @Published var artwork: NSImage?
     let root: URL
     private let backend = DispatchQueue(label: "FusionPlay.host", qos: .userInitiated)
     private var receiver: Receiver?
@@ -33,6 +36,10 @@ final class ReceiverModel: ObservableObject {
     private var signature = ""
     private var retryCount = 0
     private var appliedSettings: Settings?
+    private lazy var systemMedia = SystemMediaController { [weak self] command in self?.control(command) }
+    private var artworkTask: Task<Void, Never>?
+    private var artworkKey = ""
+    private var terminating = false
 
     private init() {
         root = Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()
@@ -90,8 +97,54 @@ final class ReceiverModel: ObservableObject {
         }
     }
     func accept(_ state: Snapshot) {
+        guard !terminating else { return }
         snapshot = state; volume = Double(state.volume)
+        if !state.controlsAvailable { controlMessage = "" }
+        updateArtwork(state)
+        if busy || sleeping { systemMedia.clear() }
+        else { systemMedia.update(state, busy: controlBusy, artwork: artwork) }
         if state.phase == .failed { error = state.message }
+    }
+    var canControl: Bool { snapshot?.controlsAvailable == true && !busy && !controlBusy }
+    func togglePlayback() { control(snapshot?.phase == .playing ? .pause : .play) }
+    func control(_ command: PlaybackCommand) {
+        guard let receiver, canControl, !terminating else { return }
+        controlBusy = true; controlMessage = "正在发送到手机…"
+        if let snapshot { systemMedia.update(snapshot, busy: true, artwork: artwork) }
+        backend.async { [weak self] in
+            do {
+                let outcome = try receiver.control(command: command)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !self.terminating else { return }
+                    self.controlBusy = false
+                    self.controlMessage = outcome.confirmed ? "手机已确认" : "指令已发送，手机尚未确认"
+                    self.accept(receiver.snapshot())
+                }
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !self.terminating else { return }
+                    self.controlBusy = false; self.controlMessage = "播放控制失败：\(error)"
+                    self.accept(receiver.snapshot())
+                }
+            }
+        }
+    }
+    private func updateArtwork(_ state: Snapshot) {
+        let key = state.controlsAvailable ? "\(state.trackId)|\(state.artworkUrl)" : ""
+        guard key != artworkKey else { return }
+        artworkKey = key; artworkTask?.cancel(); artwork = nil
+        guard state.controlsAvailable, let url = URL(string: state.artworkUrl),
+              url.scheme == "https", url.user == nil, url.password == nil else { return }
+        artworkTask = Task { [weak self] in
+            do {
+                guard let cgImage = try await ArtworkLoader.load(url), !Task.isCancelled,
+                      let self, self.artworkKey == key, !self.terminating else { return }
+                self.artwork = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                if let state = self.snapshot, !self.busy, !self.sleeping {
+                    self.systemMedia.update(state, busy: self.controlBusy, artwork: self.artwork, force: true)
+                }
+            } catch { /* Missing/unavailable covers use the placeholder. */ }
+        }
     }
     func start() {
         let settings = Settings(name: name, interfaceName: interfaceName, outputDevice: outputDevice, volume: UInt32(volume))
@@ -101,6 +154,7 @@ final class ReceiverModel: ObservableObject {
     private func start(_ settings: Settings) {
         guard let receiver, !busy, !sleeping else { return }
         busy = true; error = ""
+        systemMedia.clear()
         backend.async { [weak self] in
             do {
                 try receiver.start(settings: settings)
@@ -111,7 +165,7 @@ final class ReceiverModel: ObservableObject {
                     self.signature = self.deviceSignature(settings: settings)
                 }
             } catch {
-                DispatchQueue.main.async { [weak self] in self?.busy = false; self?.error = String(describing: error); self?.snapshot = receiver.snapshot() }
+                DispatchQueue.main.async { [weak self] in self?.busy = false; self?.error = String(describing: error); self?.accept(receiver.snapshot()) }
             }
         }
     }
@@ -122,6 +176,7 @@ final class ReceiverModel: ObservableObject {
     private func stopCore() {
         guard let receiver else { return }
         busy = true
+        systemMedia.clear()
         backend.async { [weak self] in
             receiver.stop()
             let state = receiver.snapshot()
@@ -130,6 +185,7 @@ final class ReceiverModel: ObservableObject {
     }
     func setVolume() {
         guard let receiver else { return }
+        volume = volume.rounded()
         let value = UInt32(volume)
         backend.async { [weak self] in
             do { try receiver.setVolume(volume: value) }
@@ -171,6 +227,7 @@ final class ReceiverModel: ObservableObject {
     }
     func openLogs() { NSWorkspace.shared.open(root.appendingPathComponent("logs")) }
     func terminate(completion: @escaping @MainActor @Sendable () -> Void) {
+        terminating = true; artworkTask?.cancel(); systemMedia.shutdown()
         timer?.invalidate(); timer = nil; wantsReceiving = false
         // AppKit must receive the termination reply after terminateLater returns,
         // including when startup failed before a receiver was constructed.

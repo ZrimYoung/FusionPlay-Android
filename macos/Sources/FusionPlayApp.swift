@@ -21,6 +21,10 @@ struct FusionPlayApp: App {
         MenuBarExtra("FusionPlay", systemImage: model.snapshot?.phase == .playing ? "hifispeaker.fill" : "hifispeaker") {
             ReceiverPanel(model: model)
         }.menuBarExtraStyle(.window)
+        Window("FusionPlay · 正在播放", id: "player") {
+            PlayerView(model: model)
+        }.defaultSize(width: 400, height: 560)
+          .windowResizability(.contentSize)
         Window("FusionPlay 设置", id: "settings") {
             SettingsPanel(model: model)
         }.defaultSize(width: 480, height: 430)
@@ -47,10 +51,14 @@ struct ReceiverPanel: View {
                     Text(state.artist).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
+            PlaybackControls(model: model)
+            if !model.controlMessage.isEmpty {
+                Text(model.controlMessage).font(.caption).foregroundStyle(.secondary)
+            }
             HStack {
                 Image(systemName: "speaker.wave.2")
-                Slider(value: $model.volume, in: 0...100, step: 1) { editing in if !editing { model.setVolume() } }
-                Text("\(Int(model.volume))%").monospacedDigit().frame(width: 42)
+                Slider(value: $model.volume, in: 0...100) { editing in if !editing { model.setVolume() } }
+                Text("\(Int(model.volume.rounded()))%").monospacedDigit().frame(width: 42)
             }.disabled(!model.initialized)
             if !model.error.isEmpty {
                 Text(model.error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
@@ -60,12 +68,89 @@ struct ReceiverPanel: View {
             }.buttonStyle(.borderedProminent).disabled(model.busy || !model.initialized)
             Divider()
             HStack {
+                Button("正在播放") { openWindow(id: "player"); NSApp.activate(ignoringOtherApps: true) }
                 Button("设置…") { openWindow(id: "settings"); NSApp.activate(ignoringOtherApps: true) }
                 Button("日志") { model.openLogs() }
                 Spacer()
                 Button("退出") { NSApp.terminate(nil) }
             }.buttonStyle(.borderless)
         }.padding(18).frame(width: 320)
+    }
+}
+
+struct PlaybackControls: View {
+    @ObservedObject var model: ReceiverModel
+    var body: some View {
+        HStack(spacing: 26) {
+            Spacer()
+            Button { model.control(.previous) } label: { Image(systemName: "backward.end.fill") }
+                .help("上一曲").accessibilityLabel("上一曲")
+            Button { model.togglePlayback() } label: {
+                Image(systemName: model.snapshot?.phase == .playing ? "pause.fill" : "play.fill")
+                    .font(.title2).frame(width: 32, height: 32)
+            }.help(model.snapshot?.phase == .playing ? "暂停" : "播放")
+                .accessibilityLabel(model.snapshot?.phase == .playing ? "暂停" : "播放")
+            Button { model.control(.next) } label: { Image(systemName: "forward.end.fill") }
+                .help("下一曲").accessibilityLabel("下一曲")
+            Spacer()
+        }.buttonStyle(.borderless).disabled(!model.canControl)
+    }
+}
+
+struct PlayerView: View {
+    @ObservedObject var model: ReceiverModel
+    private func time(_ milliseconds: UInt64) -> String {
+        let seconds = milliseconds / 1000
+        return String(format: "%llu:%02llu", seconds / 60, seconds % 60)
+    }
+    var body: some View {
+        VStack(spacing: 18) {
+            HStack {
+                Label("FusionPlay", systemImage: "hifispeaker.fill").font(.headline)
+                Spacer()
+                Text(model.phaseLabel).font(.caption).foregroundStyle(.secondary)
+            }
+            ZStack {
+                RoundedRectangle(cornerRadius: 16).fill(.quaternary)
+                if let artwork = model.artwork {
+                    Image(nsImage: artwork).resizable().scaledToFit()
+                } else {
+                    Image(systemName: "music.note").font(.system(size: 70, weight: .light))
+                        .foregroundStyle(.secondary).accessibilityLabel("暂无封面")
+                }
+            }.frame(width: 230, height: 230).clipShape(RoundedRectangle(cornerRadius: 16))
+            VStack(spacing: 5) {
+                Text(model.snapshot?.title.isEmpty == false ? model.snapshot!.title : "等待手机投送")
+                    .font(.title2.weight(.semibold)).lineLimit(2).textSelection(.enabled)
+                if let state = model.snapshot {
+                    Text([state.artist, state.album].filter { !$0.isEmpty }.joined(separator: " · "))
+                        .foregroundStyle(.secondary).lineLimit(2)
+                }
+            }.frame(maxWidth: .infinity)
+            if let state = model.snapshot, let duration = state.durationMs, duration > 0 {
+                VStack(spacing: 5) {
+                    if let position = state.positionMs {
+                        ProgressView(value: Double(min(position, duration)), total: Double(duration))
+                        HStack { Text(time(position)); Spacer(); Text(time(duration)) }
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    } else { Text("总时长 \(time(duration)) · 手机未提供播放位置").font(.caption).foregroundStyle(.secondary) }
+                }
+            } else {
+                Text("手机尚未提供时长和进度").font(.caption).foregroundStyle(.secondary)
+            }
+            PlaybackControls(model: model)
+            HStack {
+                Image(systemName: "speaker.wave.2")
+                Slider(value: $model.volume, in: 0...100) { editing in if !editing { model.setVolume() } }
+                Text("\(Int(model.volume.rounded()))%").monospacedDigit().frame(width: 42)
+            }.disabled(!model.initialized)
+            Text(model.controlMessage.isEmpty ? (model.snapshot?.message ?? "准备中") : model.controlMessage)
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if !model.error.isEmpty { Text(model.error).font(.caption).foregroundStyle(.red) }
+            Button(model.wantsReceiving ? "停止接收" : "启动接收") {
+                if model.wantsReceiving { model.stop() } else { model.start() }
+            }.disabled(model.busy || !model.initialized)
+        }.padding(24).frame(width: 360)
     }
 }
 
