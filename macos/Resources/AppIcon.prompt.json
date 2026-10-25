@@ -1,0 +1,6 @@
+{
+  "tool": "builtin image_gen",
+  "reference": "E: light background, blue interlocking rings",
+  "transparent_background": false,
+  "prompt": "Edit the provided FusionPlay app icon. Preserve exactly the centered two interlocking blue circular rings, their geometry, horizontal layout, scale, negative spaces, generous margins and warm off-white background. Add JUST A LITTLE liquid-glass material to the blue rings: softly rounded edges, thin controlled glossy edge highlights, subtle blue refraction and mild inner depth. Understated, polished, minimal macOS app identity. Keep the rings predominantly cobalt blue, readable at small sizes. The background must remain a uniform opaque off-white from edge to edge. All pixels fully opaque; the glass appearance must be painted shading, NOT actual transparency. No patchy holes, no mottling, no grain, no checkerboard, no rainbow, no sparkles, no dramatic lensing, no additional objects, no text. Avoid thick plastic tubes or extravagant 3D. Square master icon artwork, not a mockup. Keep the original clean silhouette and recognizable double ring design."
+}

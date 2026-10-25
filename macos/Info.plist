@@ -4,12 +4,16 @@
 <key>CFBundleIdentifier</key><string>tech.zrim.fusionplay.mac</string>
 <key>CFBundleName</key><string>FusionPlay Mac</string>
 <key>CFBundleExecutable</key><string>FusionPlayMac</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2.0</string>
-<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleShortVersionString</key><string>0.2.1</string>
+<key>CFBundleVersion</key><string>4</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
-<key>LSUIElement</key><true/>
+<key>LSUIElement</key><false/>
 <key>NSHighResolutionCapable</key><true/>
+<!-- MiPlay senders may supply public cover images over HTTP. URLSession is
+     used only for bounded artwork GETs, with no cookies or credential store. -->
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
 <key>NSLocalNetworkUsageDescription</key><string>FusionPlay 需要访问局域网，以便手机发现这台 Mac 并向它投送音乐。</string>
 <key>NSBonjourServices</key><array><string>_lyra-mdns._udp</string><string>_mi-connect._udp</string></array>
 </dict></plist>

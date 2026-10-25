@@ -29,6 +29,8 @@ jobs:
         run: bash macos/scripts/build.sh
       - name: Test Swift binding lifecycle
         run: bash macos/scripts/test-bridge.sh
+      - name: Test artwork formats and download errors
+        run: bash macos/scripts/test-artwork.sh
       - name: Archive app
         id: package
         shell: bash

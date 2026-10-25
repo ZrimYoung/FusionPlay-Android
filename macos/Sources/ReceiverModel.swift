@@ -26,6 +26,8 @@ final class ReceiverModel: ObservableObject {
     @Published var controlBusy = false
     @Published var controlMessage = ""
     @Published var artwork: NSImage?
+    @Published var artworkStatus = "尚未连接"
+    @Published var artworkLoading = false
     let root: URL
     private let backend = DispatchQueue(label: "FusionPlay.host", qos: .userInitiated)
     private var receiver: Receiver?
@@ -56,7 +58,7 @@ final class ReceiverModel: ObservableObject {
                 let networks = try networkInterfaces()
                 let outputs = try audioDevices()
                 DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
+                    guard let self, !self.terminating else { return }
                     self.receiver = receiver
                     self.name = settings.name; self.interfaceName = settings.interfaceName
                     self.outputDevice = settings.outputDevice; self.volume = Double(settings.volume)
@@ -68,6 +70,9 @@ final class ReceiverModel: ObservableObject {
                     self.timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
                         Task { @MainActor [weak self] in self?.refreshDevices() }
                     }
+                    // Start once after restoring persisted settings and subscribing.
+                    // Reopening a window must not override a user's explicit stop.
+                    self.start()
                 }
             } catch { DispatchQueue.main.async { [weak self] in self?.error = String(describing: error) } }
         }
@@ -132,27 +137,80 @@ final class ReceiverModel: ObservableObject {
     private func updateArtwork(_ state: Snapshot) {
         let key = state.controlsAvailable ? "\(state.trackId)|\(state.artworkUrl)" : ""
         guard key != artworkKey else { return }
-        artworkKey = key; artworkTask?.cancel(); artwork = nil
-        guard state.controlsAvailable, let url = URL(string: state.artworkUrl),
-              url.scheme == "https", url.user == nil, url.password == nil else { return }
+        artworkKey = key; artworkTask?.cancel(); artwork = nil; artworkLoading = false
+        guard state.controlsAvailable else { artworkStatus = "尚未连接"; return }
+        let source = state.artworkUrl
+        let kind = ArtworkLoader.kind(of: source)
+        guard kind != "missing" else {
+            artworkStatus = "手机未提供封面"
+            recordArtwork(kind: kind, result: "source_missing", attempt: 0)
+            return
+        }
+        artworkLoading = true; artworkStatus = "正在加载封面"
         artworkTask = Task { [weak self] in
-            do {
-                guard let cgImage = try await ArtworkLoader.load(url), !Task.isCancelled,
-                      let self, self.artworkKey == key, !self.terminating else { return }
-                self.artwork = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                if let state = self.snapshot, !self.busy, !self.sleeping {
-                    self.systemMedia.update(state, busy: self.controlBusy, artwork: self.artwork, force: true)
+            for attempt in 1...3 {
+                do {
+                    let cgImage = try await ArtworkLoader.load(source)
+                    guard !Task.isCancelled, let self, self.artworkKey == key, !self.terminating else { return }
+                    self.artwork = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                    self.artworkLoading = false; self.artworkStatus = "已加载"
+                    self.recordArtwork(kind: kind, result: "loaded", attempt: attempt)
+                    if let state = self.snapshot, !self.busy, !self.sleeping {
+                        self.systemMedia.update(state, busy: self.controlBusy, artwork: self.artwork, force: true)
+                    }
+                    return
+                } catch {
+                    guard !Task.isCancelled, let self, self.artworkKey == key, !self.terminating else { return }
+                    let known = error as? ArtworkError
+                    let code = known?.diagnosticCode ?? "network_\((error as NSError).code)"
+                    self.recordArtwork(kind: kind, result: code, attempt: attempt)
+                    let retry = attempt < 3 && (known?.retryable ?? (error is URLError))
+                    self.artworkStatus = retry ? "加载失败，正在重试" : "封面加载失败（\(code)）"
+                    if !retry { self.artworkLoading = false; return }
+                    do { try await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000) }
+                    catch { return }
                 }
-            } catch { /* Missing/unavailable covers use the placeholder. */ }
+            }
+        }
+    }
+    func reloadArtwork() {
+        guard let snapshot, snapshot.controlsAvailable, !artworkLoading else { return }
+        artworkKey = "\0"
+        updateArtwork(snapshot)
+        systemMedia.update(snapshot, busy: controlBusy || busy, artwork: artwork, force: true)
+    }
+    private func recordArtwork(kind: String, result: String, attempt: Int) {
+        let directory = root.appendingPathComponent("logs")
+        backend.async {
+            // Only format/result/attempt are logged: no URLs, query tokens,
+            // inline image bytes, track names or other phone metadata.
+            let path = directory.appendingPathComponent("artwork.jsonl")
+            let record: [String: Any] = ["time": Date().timeIntervalSince1970,
+                                        "source_kind": kind, "result": result, "attempt": attempt]
+            guard var data = try? JSONSerialization.data(withJSONObject: record) else { return }
+            data.append(10)
+            let fm = FileManager.default
+            if let attrs = try? fm.attributesOfItem(atPath: path.path),
+               let size = attrs[.size] as? NSNumber, size.intValue > 50_000 {
+                let previous = directory.appendingPathComponent("artwork.previous.jsonl")
+                try? fm.removeItem(at: previous); try? fm.moveItem(at: path, to: previous)
+            }
+            if !fm.fileExists(atPath: path.path) {
+                fm.createFile(atPath: path.path, contents: nil, attributes: [.posixPermissions: 0o600])
+            }
+            guard let handle = try? FileHandle(forWritingTo: path) else { return }
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd(); try? handle.write(contentsOf: data)
         }
     }
     func start() {
+        guard initialized, !terminating else { return }
         let settings = Settings(name: name, interfaceName: interfaceName, outputDevice: outputDevice, volume: UInt32(volume))
         appliedSettings = settings; wantsReceiving = true; retryCount = 0
         start(settings)
     }
     private func start(_ settings: Settings) {
-        guard let receiver, !busy, !sleeping else { return }
+        guard let receiver, !busy, !sleeping, !terminating else { return }
         busy = true; error = ""
         systemMedia.clear()
         backend.async { [weak self] in

@@ -2,11 +2,18 @@ import AppKit
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    var showPlayer: (() -> Void)?
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
         let duplicates = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
         if duplicates.count > 1 { NSApp.terminate(nil) }
     }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard let showPlayer else { return true }
+        showPlayer()
+        return false
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         ReceiverModel.shared.terminate { NSApp.reply(toApplicationShouldTerminate: true) }
         return .terminateLater
@@ -18,17 +25,32 @@ struct FusionPlayApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var model = ReceiverModel.shared
     var body: some Scene {
+        Window("FusionPlay · 正在播放", id: "player") {
+            PlayerWindowContent(model: model, delegate: delegate)
+        }.defaultSize(width: 760, height: 434)
+          .windowResizability(.contentSize)
         MenuBarExtra("FusionPlay", systemImage: model.snapshot?.phase == .playing ? "hifispeaker.fill" : "hifispeaker") {
             ReceiverPanel(model: model)
         }.menuBarExtraStyle(.window)
-        Window("FusionPlay · 正在播放", id: "player") {
-            PlayerView(model: model)
-        }.defaultSize(width: 760, height: 434)
-          .windowResizability(.contentSize)
         Window("FusionPlay 设置", id: "settings") {
             SettingsPanel(model: model)
         }.defaultSize(width: 480, height: 430)
           .windowResizability(.contentSize)
+    }
+}
+
+private struct PlayerWindowContent: View {
+    @ObservedObject var model: ReceiverModel
+    let delegate: AppDelegate
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        PlayerView(model: model).onAppear {
+            // Keep SwiftUI responsible for recreating a closed player window.
+            delegate.showPlayer = {
+                openWindow(id: "player")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
     }
 }
 
@@ -278,6 +300,10 @@ struct SettingsPanel: View {
             }
             Section("同步诊断") {
                 LabeledContent("状态", value: model.phaseLabel)
+                LabeledContent("专辑封面", value: model.artworkStatus)
+                if model.snapshot?.controlsAvailable == true && model.artwork == nil {
+                    Button("重新加载封面") { model.reloadArtwork() }.disabled(model.artworkLoading)
+                }
                 if let s = model.snapshot {
                     LabeledContent("输出设备", value: s.output.isEmpty ? "尚未输出" : s.output)
                     LabeledContent("音频缓冲", value: String(format: "%.1f ms", s.queueMs))
