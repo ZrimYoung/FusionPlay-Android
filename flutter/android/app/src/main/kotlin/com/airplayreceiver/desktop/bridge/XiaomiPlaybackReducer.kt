@@ -1,5 +1,10 @@
 package com.airplayreceiver.desktop.bridge
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+
 /**
  * Reduces Xiaomi's two asynchronous event streams into ordered playback
  * mutations. New bridges attach monotonic bridge/session sequences. Older
@@ -18,6 +23,9 @@ class XiaomiPlaybackReducer(
     private var currentMediaInfo: XiaomiMediaInfo? = null
     private var pendingMediaInfo: PendingMediaInfo? = null
     private var pendingSeek: PendingSeek? = null
+    private var mediaGeneration: Long? = null
+    private var mediaClosed = false
+    private var mediaCloseDeadline: Long? = null
 
     /**
      * Records a seek accepted by the native MiPlay control channel. Position
@@ -44,7 +52,11 @@ class XiaomiPlaybackReducer(
     }
 
     fun reduce(event: WindowsBridgeXiaomiEvent): XiaomiReduction {
+        reduceMediaLifecycle(event)?.let { return it }
         val playbackState = event.toPlaybackStateOrNull()
+        if (mediaClosed && playbackState?.sessionActive == true) {
+            return XiaomiReduction.ignored("closed_media_route", event.bridgeSequence, currentSessionSequence)
+        }
         val mediaInfo = event.toMediaInfoOrNull()
         if (playbackState == null && mediaInfo == null) {
             return XiaomiReduction.ignored(
@@ -78,12 +90,57 @@ class XiaomiPlaybackReducer(
         }
     }
 
+    /** Stop progress immediately on audio EOF, but retain metadata briefly for track handover. */
+    private fun reduceMediaLifecycle(event: WindowsBridgeXiaomiEvent): XiaomiReduction? {
+        val payload = event.payload as? JsonObject ?: return null
+        val generation = payload["media_generation"]?.jsonPrimitive?.longOrNull ?: return null
+        val opened = event.eventName == "interconnect_stage" &&
+            payload["stage"]?.jsonPrimitive?.contentOrNull == "media_session_established"
+        if (opened && generation > (mediaGeneration ?: 0L)) {
+            mediaGeneration = generation
+            mediaClosed = false
+            mediaCloseDeadline = null
+            return null
+        }
+        // RTSP control EOF alone does not prove that the independent audio socket ended.
+        val ended = event.eventName == "stream_stopped" ||
+            (event.eventName == "media_channel_closed" &&
+                payload["channel"]?.jsonPrimitive?.contentOrNull == "audio") ||
+            (event.eventName == "error" && payload["code"]?.jsonPrimitive?.contentOrNull == "miplay_audio_stream_failed")
+        if (!ended) return null
+        if (generation != mediaGeneration || mediaClosed) {
+            return XiaomiReduction.ignored("stale_or_duplicate_media_close", event.bridgeSequence, currentSessionSequence)
+        }
+        mediaClosed = true
+        mediaCloseDeadline = nowMillis() + 2_000L
+        if (!sessionActive) return XiaomiReduction.ignored("inactive_media_closed", event.bridgeSequence, currentSessionSequence)
+        return XiaomiReduction(
+            mutations = listOf(XiaomiPlaybackMutation.Activate(currentSessionSequence, null, 3, false)),
+            outcome = XiaomiReductionOutcome.APPLIED,
+            reason = "audio_ended_waiting_for_replacement",
+            eventSequence = event.bridgeSequence,
+            sessionSequence = currentSessionSequence,
+        )
+    }
+
+    fun expireClosedMedia(): XiaomiReduction? {
+        val deadline = mediaCloseDeadline ?: return null
+        if (nowMillis() < deadline) return null
+        mediaCloseDeadline = null
+        // Keep the generation tombstone until a new OPEN, so late control notifications
+        // cannot resurrect a stream that no longer produces audio.
+        return reducePlaybackState(XiaomiPlaybackState(false, null, 4, currentSessionSequence, null))
+    }
+
     fun reset(resetEventSequence: Boolean = false): XiaomiReduction {
         val oldSession = currentSessionSequence.takeIf { it > 0L }
         if (resetEventSequence) {
             lastEventSequence = 0L
         }
         currentSessionSequence = 0L
+        mediaGeneration = null
+        mediaClosed = false
+        mediaCloseDeadline = null
         sessionActive = false
         currentMediaInfo = null
         pendingMediaInfo = null

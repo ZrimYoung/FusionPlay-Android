@@ -25,6 +25,7 @@ import com.airplayreceiver.desktop.bridge.WindowsBridgeXiaomiExit
 import com.airplayreceiver.desktop.bridge.WindowsBridgeXiaomiLog
 import com.airplayreceiver.desktop.bridge.XiaomiPlaybackMutation
 import com.airplayreceiver.desktop.bridge.XiaomiPlaybackReducer
+import com.airplayreceiver.desktop.bridge.XiaomiReduction
 import com.airplayreceiver.desktop.bridge.toVolumePercentOrNull
 import com.airplayreceiver.desktop.bridge.toXiaomiMiPlayUserMessage
 import com.fusionplay.android.media.FusionPlayMediaChannel
@@ -178,6 +179,7 @@ class FusionPlayRuntime(
                     }
                 }
 
+                xiaomiReducer.expireClosedMedia()?.let { applyXiaomiReduction(it) }
                 val playback = viewModel.state.value.playback
                 if (
                     playback.protocol.equals(XIAOMI_PROTOCOL, ignoreCase = true) &&
@@ -813,6 +815,10 @@ class FusionPlayRuntime(
                     },
             )
         }
+        applyXiaomiReduction(reduction)
+    }
+
+    private suspend fun applyXiaomiReduction(reduction: XiaomiReduction) {
         for (mutation in reduction.mutations) {
             when (mutation) {
                 is XiaomiPlaybackMutation.Activate -> {
@@ -853,9 +859,10 @@ class FusionPlayRuntime(
                 is XiaomiPlaybackMutation.Deactivate -> {
                     xiaomiTrackChangeDirection = null
                     xiaomiTakeoverGate.reset()
-                    mediaSourceArbiter.deactivate(MediaSource.XIAOMI_MIPLAY) {
-                        viewModel.deactivateXiaomiPlayback()
-                    }
+                    // Pause already releases the arbiter; still remove the cached/UI
+                    // session when its media route subsequently ends.
+                    mediaSourceArbiter.deactivate(MediaSource.XIAOMI_MIPLAY)
+                    viewModel.deactivateXiaomiPlayback()
                 }
                 is XiaomiPlaybackMutation.ApplyMediaInfo -> mutation.mediaInfo.let { media ->
                     if (mutation.replaceTrack) {
@@ -1315,7 +1322,7 @@ class FusionPlayRuntime(
             "target_server_minus_local_us", "phase_error_us", "frequency_ppm",
             "round_trip_us", "latency_ms", "arrival_residual_ms", "media_generation",
             "front_pts_us", "server_now_us", "schedule_error_us", "buffered_frames",
-            "timed_playback_started",
+            "timed_playback_started", "channel",
             "observed_output_latency_ms", "underrun_callbacks",
             "output_latency_calibrated",
             "output_advance_ms",
