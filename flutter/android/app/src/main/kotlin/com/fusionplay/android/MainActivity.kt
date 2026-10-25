@@ -26,12 +26,18 @@ import com.fusionplay.android.media.FusionPlayMediaCommand
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 class MainActivity : FlutterActivity() {
     private val consumedMediaKeys = mutableSetOf<Int>()
     private var navigationKeyChannel: MethodChannel? = null
     private var pendingAccessibilityKeepAlivePrompt = false
     private var receiverNameDialog: AlertDialog? = null
+    private var screenOnJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         configureImmersiveMode(window)
@@ -115,10 +121,21 @@ class MainActivity : FlutterActivity() {
     override fun onStart() {
         super.onStart()
         appInForeground = true
-        (application as FusionPlayFlutterApplication).runtime.setAppForeground(true)
+        val runtime = (application as FusionPlayFlutterApplication).runtime
+        runtime.setAppForeground(true)
+        screenOnJob?.cancel()
+        screenOnJob = CoroutineScope(Dispatchers.Main.immediate).launch {
+            runtime.keepScreenOn.collect { keepOn ->
+                if (keepOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
     }
 
     override fun onStop() {
+        screenOnJob?.cancel()
+        screenOnJob = null
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         appInForeground = false
         (application as FusionPlayFlutterApplication).runtime.setAppForeground(false)
         super.onStop()

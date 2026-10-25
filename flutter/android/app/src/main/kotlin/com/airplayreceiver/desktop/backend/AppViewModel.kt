@@ -306,6 +306,14 @@ class AppViewModel(
         }
     }
 
+    suspend fun setKeepScreenOnWhilePlaying(enabled: Boolean) {
+        awaitInitialized()
+        runBusyAction("Unable to update keep screen on setting") {
+            val updated = settingsStore.update { it.copy(keepScreenOnWhilePlaying = enabled) }
+            _state.update { it.copy(settings = updated) }
+        }
+    }
+
     suspend fun setAutoWakeEnabled(enabled: Boolean) {
         awaitInitialized()
         runBusyAction("Unable to update automatic wake setting") {

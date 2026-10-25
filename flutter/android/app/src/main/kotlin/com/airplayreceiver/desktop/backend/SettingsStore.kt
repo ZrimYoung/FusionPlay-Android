@@ -125,6 +125,7 @@ class SettingsStore(
             xiaomiNetworkAdapterId = null,
             startupEnabled = root["startupEnabled"]?.jsonPrimitive?.booleanOrNull ?: true,
             autoWakeEnabled = root["autoWakeEnabled"]?.jsonPrimitive?.booleanOrNull ?: true,
+            keepScreenOnWhilePlaying = root["keepScreenOnWhilePlaying"]?.jsonPrimitive?.booleanOrNull ?: true,
             advancedEffectsEnabled =
                 root["advancedEffectsEnabled"]?.jsonPrimitive?.booleanOrNull ?: false,
             miPlayEnabled = root["miPlayEnabled"]?.jsonPrimitive?.booleanOrNull ?: true,
@@ -141,6 +142,7 @@ class SettingsStore(
         settings.receiverName?.let { put("receiverName", it) }
         put("startupEnabled", settings.startupEnabled)
         put("autoWakeEnabled", settings.autoWakeEnabled)
+        put("keepScreenOnWhilePlaying", settings.keepScreenOnWhilePlaying)
         put("advancedEffectsEnabled", settings.advancedEffectsEnabled)
         put("miPlayEnabled", settings.miPlayEnabled)
         put(

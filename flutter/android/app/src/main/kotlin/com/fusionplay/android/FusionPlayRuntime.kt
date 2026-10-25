@@ -45,6 +45,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -72,6 +74,11 @@ class FusionPlayRuntime(
         diagnosticLogger = diagnosticLogger,
         parentScope = scope,
     )
+    // A cold flow emits the current setting/playback on every Activity start.
+    val keepScreenOn = viewModel.state.map { state ->
+        state.settings.keepScreenOnWhilePlaying && state.playback.isPlaying
+    }.distinctUntilChanged()
+
     private val bridge = WindowsBridgeClient(parentScope = scope, stopXiaomiOnClose = false)
     private val xiaomiReducer = XiaomiPlaybackReducer()
     private val xiaomiTakeoverGate = XiaomiTakeoverGate()
@@ -222,6 +229,8 @@ class FusionPlayRuntime(
                             AccessibilityKeepAliveController.requestAuthorization(context)
                         }
                     }
+                    "setKeepScreenOnWhilePlaying" ->
+                        viewModel.setKeepScreenOnWhilePlaying(call.boolean("value"))
                     "setAdvancedEffectsEnabled" ->
                         viewModel.setAdvancedEffectsEnabled(call.boolean("value"))
                     "setNativeCastPaused" -> nativeCast.setPaused(call.boolean("value"))
@@ -1143,6 +1152,7 @@ class FusionPlayRuntime(
             "receiverName" to state.settings.receiverName,
             "startupEnabled" to state.settings.startupEnabled,
             "autoWakeEnabled" to state.settings.autoWakeEnabled,
+            "keepScreenOnWhilePlaying" to state.settings.keepScreenOnWhilePlaying,
             "advancedEffectsEnabled" to state.settings.advancedEffectsEnabled,
             "miPlayEnabled" to state.settings.miPlayEnabled,
             "miPlayDeviceIdentity" to state.settings.miPlayDeviceIdentity.persistedValue,

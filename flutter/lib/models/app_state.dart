@@ -46,6 +46,7 @@ class AppSettings {
     this.receiverName,
     this.startupEnabled = true,
     this.autoWakeEnabled = true,
+    this.keepScreenOnWhilePlaying = true,
     this.advancedEffectsEnabled = false,
     this.miPlayEnabled = true,
     this.miPlayDeviceIdentity = MiPlayDeviceIdentity.television,
@@ -57,6 +58,7 @@ class AppSettings {
   final String? receiverName;
   final bool startupEnabled;
   final bool autoWakeEnabled;
+  final bool keepScreenOnWhilePlaying;
   final bool advancedEffectsEnabled;
   final bool miPlayEnabled;
   final MiPlayDeviceIdentity miPlayDeviceIdentity;
@@ -68,6 +70,7 @@ class AppSettings {
     receiverName: _string(map['receiverName']),
     startupEnabled: map['startupEnabled'] as bool? ?? true,
     autoWakeEnabled: map['autoWakeEnabled'] as bool? ?? true,
+    keepScreenOnWhilePlaying: map['keepScreenOnWhilePlaying'] as bool? ?? true,
     advancedEffectsEnabled: map['advancedEffectsEnabled'] as bool? ?? false,
     miPlayEnabled: map['miPlayEnabled'] as bool? ?? true,
     miPlayDeviceIdentity: MiPlayDeviceIdentity.parse(
@@ -82,6 +85,7 @@ class AppSettings {
     bool clearReceiverName = false,
     bool? startupEnabled,
     bool? autoWakeEnabled,
+    bool? keepScreenOnWhilePlaying,
     bool? advancedEffectsEnabled,
     bool? miPlayEnabled,
     MiPlayDeviceIdentity? miPlayDeviceIdentity,
@@ -92,6 +96,8 @@ class AppSettings {
     receiverName: clearReceiverName ? null : receiverName ?? this.receiverName,
     startupEnabled: startupEnabled ?? this.startupEnabled,
     autoWakeEnabled: autoWakeEnabled ?? this.autoWakeEnabled,
+    keepScreenOnWhilePlaying:
+        keepScreenOnWhilePlaying ?? this.keepScreenOnWhilePlaying,
     advancedEffectsEnabled:
         advancedEffectsEnabled ?? this.advancedEffectsEnabled,
     miPlayEnabled: miPlayEnabled ?? this.miPlayEnabled,
@@ -108,6 +114,7 @@ class AppSettings {
           receiverName == other.receiverName &&
           startupEnabled == other.startupEnabled &&
           autoWakeEnabled == other.autoWakeEnabled &&
+          keepScreenOnWhilePlaying == other.keepScreenOnWhilePlaying &&
           advancedEffectsEnabled == other.advancedEffectsEnabled &&
           miPlayEnabled == other.miPlayEnabled &&
           miPlayDeviceIdentity == other.miPlayDeviceIdentity &&
@@ -120,6 +127,7 @@ class AppSettings {
     receiverName,
     startupEnabled,
     autoWakeEnabled,
+    keepScreenOnWhilePlaying,
     advancedEffectsEnabled,
     miPlayEnabled,
     miPlayDeviceIdentity,

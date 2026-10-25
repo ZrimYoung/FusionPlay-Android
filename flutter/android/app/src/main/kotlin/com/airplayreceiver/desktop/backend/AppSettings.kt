@@ -38,6 +38,7 @@ data class AppSettings(
     val xiaomiNetworkAdapterId: String? = null,
     val startupEnabled: Boolean = true,
     val autoWakeEnabled: Boolean = true,
+    val keepScreenOnWhilePlaying: Boolean = true,
     val advancedEffectsEnabled: Boolean = false,
     val miPlayEnabled: Boolean = true,
     val miPlayDeviceIdentity: MiPlayDeviceIdentity =

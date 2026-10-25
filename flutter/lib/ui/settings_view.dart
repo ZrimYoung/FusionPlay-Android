@@ -22,6 +22,7 @@ class SettingsView extends StatefulWidget {
     required this.onReceiverName,
     required this.onStartup,
     required this.onAutoWake,
+    required this.onKeepScreenOn,
     required this.onAdvancedEffects,
     required this.onMiPlay,
     required this.onMiPlayIdentity,
@@ -39,6 +40,7 @@ class SettingsView extends StatefulWidget {
   final ValueChanged<String> onReceiverName;
   final ValueChanged<bool> onStartup;
   final ValueChanged<bool> onAutoWake;
+  final ValueChanged<bool> onKeepScreenOn;
   final ValueChanged<bool> onAdvancedEffects;
   final ValueChanged<bool> onMiPlay;
   final ValueChanged<MiPlayDeviceIdentity> onMiPlayIdentity;
@@ -197,6 +199,12 @@ class _SettingsViewState extends State<SettingsView> {
                   title: '自动唤起',
                   value: settings.autoWakeEnabled,
                   onChanged: widget.onAutoWake,
+                ),
+                _switchRow(
+                  icon: Icons.light_mode_outlined,
+                  title: '播放时保持亮屏',
+                  value: settings.keepScreenOnWhilePlaying,
+                  onChanged: widget.onKeepScreenOn,
                 ),
                 _switchRow(
                   icon: Icons.auto_awesome_rounded,

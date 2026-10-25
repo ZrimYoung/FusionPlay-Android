@@ -7,6 +7,53 @@ import 'package:fusionplay_android_flutter/models/app_state.dart';
 import 'package:fusionplay_android_flutter/ui/settings_view.dart';
 
 void main() {
+  testWidgets('keep screen on defaults on and can be toggled', (tester) async {
+    expect(AppSettings.fromMap({}).keepScreenOnWhilePlaying, isTrue);
+    final disabled = AppSettings.fromMap({'keepScreenOnWhilePlaying': false});
+    expect(
+      disabled.copyWith(receiverName: 'TV').keepScreenOnWhilePlaying,
+      isFalse,
+    );
+    expect(disabled, isNot(const AppSettings()));
+    final initial = FocusNode();
+    addTearDown(initial.dispose);
+    tester.view.physicalSize = const Size(600, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final values = <bool>[];
+    Widget screen(AppSettings settings) => MaterialApp(
+      home: Scaffold(
+        body: SettingsView(
+          state: AppState(initialized: true, settings: settings),
+          initialFocusNode: initial,
+          onClose: () {},
+          onReceiverName: (_) {},
+          onStartup: (_) {},
+          onAutoWake: (_) {},
+          onKeepScreenOn: values.add,
+          onAdvancedEffects: (_) {},
+          onMiPlay: (_) {},
+          onMiPlayIdentity: (_) {},
+          onAirPlay: (_) {},
+          onDlna: (_) {},
+          onExportLogs: () async {},
+        ),
+      ),
+    );
+    await tester.pumpWidget(screen(const AppSettings()));
+    final label = find.text('播放时保持亮屏');
+    await tester.ensureVisible(label);
+    await tester.tap(label);
+    await tester.pump();
+    expect(values, [false]);
+    await tester.pumpWidget(screen(disabled));
+    await tester.ensureVisible(label);
+    await tester.tap(label);
+    await tester.pump();
+    expect(values, [false, true]);
+  });
+
   testWidgets('audio calibration respects limits and can return to zero', (
     tester,
   ) async {
@@ -26,6 +73,7 @@ void main() {
           onReceiverName: (_) {},
           onStartup: (_) {},
           onAutoWake: (_) {},
+          onKeepScreenOn: (_) {},
           onAdvancedEffects: (_) {},
           onMiPlay: (_) {},
           onMiPlayIdentity: (_) {},
@@ -78,6 +126,7 @@ void main() {
               onReceiverName: saved.add,
               onStartup: (_) {},
               onAutoWake: (_) {},
+              onKeepScreenOn: (_) {},
               onAdvancedEffects: (_) {},
               onMiPlay: (_) {},
               onMiPlayIdentity: (_) {},
@@ -142,6 +191,7 @@ void main() {
             onReceiverName: (_) {},
             onStartup: (_) {},
             onAutoWake: (_) {},
+            onKeepScreenOn: (_) {},
             onAdvancedEffects: (_) {},
             onMiPlay: (_) {
               miPlayChanges++;
@@ -237,6 +287,7 @@ void main() {
             onReceiverName: (_) {},
             onStartup: (_) {},
             onAutoWake: (_) {},
+            onKeepScreenOn: (_) {},
             onAdvancedEffects: (_) {},
             onMiPlay: (_) {},
             onMiPlayIdentity: (_) {},
@@ -278,6 +329,7 @@ void main() {
             onReceiverName: (_) {},
             onStartup: (_) {},
             onAutoWake: (_) {},
+            onKeepScreenOn: (_) {},
             onAdvancedEffects: (_) {},
             onMiPlay: (_) {},
             onMiPlayIdentity: (_) {},

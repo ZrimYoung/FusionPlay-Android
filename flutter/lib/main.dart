@@ -373,6 +373,7 @@ class _FusionPlayHomeState extends State<FusionPlayHome> {
                         ),
                     onStartup: widget.controller.setStartupEnabled,
                     onAutoWake: widget.controller.setAutoWakeEnabled,
+                    onKeepScreenOn: widget.controller.setKeepScreenOnWhilePlaying,
                     onAdvancedEffects:
                         widget.controller.setAdvancedEffectsEnabled,
                     onMiPlay: (value) =>

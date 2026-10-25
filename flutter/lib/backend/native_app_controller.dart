@@ -38,6 +38,9 @@ class NativeAppController extends ChangeNotifier {
   Future<void> setStartupEnabled(bool value) =>
       _invoke('setStartupEnabled', {'value': value});
 
+  Future<void> setKeepScreenOnWhilePlaying(bool value) =>
+      _invoke('setKeepScreenOnWhilePlaying', {'value': value});
+
   Future<void> setAutoWakeEnabled(bool value) =>
       _invoke('setAutoWakeEnabled', {'value': value});
 
