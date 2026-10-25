@@ -31,6 +31,8 @@ jobs:
         run: bash macos/scripts/test-bridge.sh
       - name: Test artwork formats and download errors
         run: bash macos/scripts/test-artwork.sh
+      - name: Test Dock tile and menu icon
+        run: bash macos/scripts/test-brand.sh
       - name: Archive app
         id: package
         shell: bash

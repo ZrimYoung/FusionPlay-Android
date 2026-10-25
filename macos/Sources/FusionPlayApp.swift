@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var showPlayer: (() -> Void)?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        AppBrand.applyDockIcon()
         let duplicates = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
         if duplicates.count > 1 { NSApp.terminate(nil) }
     }
@@ -30,8 +31,10 @@ struct FusionPlayApp: App {
         }.defaultSize(width: 760, height: 400)
           .windowStyle(.hiddenTitleBar)
           .windowResizability(.contentSize)
-        MenuBarExtra("FusionPlay", systemImage: model.snapshot?.phase == .playing ? "hifispeaker.fill" : "hifispeaker") {
+        MenuBarExtra {
             ReceiverPanel(model: model)
+        } label: {
+            Image(nsImage: AppBrand.menuIcon).accessibilityLabel("FusionPlay")
         }.menuBarExtraStyle(.window)
         Window("FusionPlay 设置", id: "settings") {
             SettingsPanel(model: model)
@@ -59,45 +62,79 @@ struct ReceiverPanel: View {
     @ObservedObject var model: ReceiverModel
     @Environment(\.openWindow) private var openWindow
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Image(systemName: "hifispeaker.fill").font(.title2).foregroundStyle(.tint)
-                VStack(alignment: .leading) { Text("FusionPlay").font(.headline); Text("Mac 接收器 · 测试版").font(.caption).foregroundStyle(.secondary) }
-                Spacer()
-                Circle().fill(model.snapshot?.phase == .playing ? .green : .secondary).frame(width: 8, height: 8)
-            }
-            Text(model.phaseLabel).font(.title3.weight(.semibold))
-            Text(model.snapshot?.message ?? "正在准备接收器").font(.caption).foregroundStyle(.secondary)
-            if let state = model.snapshot, !state.title.isEmpty {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(state.title).font(.headline).lineLimit(2)
-                    Text(state.artist).foregroundStyle(.secondary).lineLimit(1)
+        VStack(spacing: 16) {
+            HStack(spacing: 11) {
+                DoubleRingMark().stroke(style: StrokeStyle(lineWidth: 2.4, lineCap: .butt))
+                    .foregroundStyle(.tint).frame(width: 32, height: 24).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("FusionPlay").font(.system(size: 14, weight: .semibold))
+                    Text(model.phaseLabel).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
+                Spacer()
+                Circle().fill(model.snapshot?.phase == .playing ? Color.green :
+                              model.wantsReceiving ? Color.accentColor : Color.secondary.opacity(0.4))
+                    .frame(width: 6, height: 6).accessibilityHidden(true)
+            }
+            if let state = model.snapshot, !state.title.isEmpty {
+                VStack(spacing: 4) {
+                    Text(state.title).font(.system(size: 13, weight: .medium)).lineLimit(2).help(state.title)
+                    if !state.artist.isEmpty {
+                        Text(state.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }.frame(maxWidth: .infinity).padding(.top, 2)
             }
             PlaybackControls(model: model)
-            if !model.controlMessage.isEmpty {
-                Text(model.controlMessage).font(.caption).foregroundStyle(.secondary)
-            }
-            HStack {
-                Image(systemName: "speaker.wave.2")
+            HStack(spacing: 10) {
+                Image(systemName: "speaker.fill").font(.system(size: 10))
                 Slider(value: $model.volume, in: 0...100) { editing in if !editing { model.setVolume() } }
-                Text("\(Int(model.volume.rounded()))%").monospacedDigit().frame(width: 42)
-            }.disabled(!model.initialized)
+                    .controlSize(.small).accessibilityLabel("接收音量")
+                    .accessibilityValue("\(Int(model.volume.rounded()))%")
+                Image(systemName: "speaker.wave.3.fill").font(.system(size: 11))
+            }.foregroundStyle(.secondary).disabled(!model.initialized)
             if !model.error.isEmpty {
                 Text(model.error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+            } else if !model.controlMessage.isEmpty {
+                Text(model.controlMessage).font(.caption).foregroundStyle(.secondary)
             }
-            Button(model.wantsReceiving ? "停止接收" : "启动接收") {
-                if model.wantsReceiving { model.stop() } else { model.start() }
-            }.buttonStyle(.borderedProminent).disabled(model.busy || !model.initialized)
             Divider()
-            HStack {
-                Button("正在播放") { openWindow(id: "player"); NSApp.activate(ignoringOtherApps: true) }
-                Button("设置…") { openWindow(id: "settings"); NSApp.activate(ignoringOtherApps: true) }
-                Button("日志") { model.openLogs() }
-                Spacer()
-                Button("退出") { NSApp.terminate(nil) }
-            }.buttonStyle(.borderless)
-        }.padding(18).frame(width: 320)
+            HStack(spacing: 0) {
+                action(model.wantsReceiving ? "stop.circle" : "dot.radiowaves.left.and.right",
+                       label: model.wantsReceiving ? "停止接收" : "启动接收") {
+                    if model.wantsReceiving { model.stop() } else { model.start() }
+                }.foregroundStyle(model.wantsReceiving ? Color.accentColor : Color.secondary)
+                    .disabled(model.busy || !model.initialized)
+                Spacer(minLength: 0)
+                action("play.rectangle", label: "正在播放") {
+                    openWindow(id: "player"); NSApp.activate(ignoringOtherApps: true)
+                }
+                Spacer(minLength: 0)
+                action("gearshape", label: "设置") {
+                    openWindow(id: "settings"); NSApp.activate(ignoringOtherApps: true)
+                }
+                Spacer(minLength: 0)
+                action("doc.text", label: "打开日志") { model.openLogs() }
+                Spacer(minLength: 0)
+                action("power", label: "退出 FusionPlay") { NSApp.terminate(nil) }
+            }.foregroundStyle(.secondary)
+        }.padding(18).frame(width: 296)
+    }
+    private func action(_ symbol: String, label: String, perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
+            Image(systemName: symbol).font(.system(size: 15, weight: .regular)).frame(width: 32, height: 30)
+        }.buttonStyle(MenuActionStyle()).help(label).accessibilityLabel(label)
+    }
+}
+
+private struct MenuActionStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    @State private var hovering = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Color.primary.opacity(enabled && (hovering || configuration.isPressed) ? 0.08 : 0),
+                        in: RoundedRectangle(cornerRadius: 7))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .opacity(enabled ? (configuration.isPressed ? 0.55 : 1) : 0.35)
+            .onHover { hovering = $0 }
     }
 }
 
@@ -116,7 +153,7 @@ struct PlaybackControls: View {
             Button { model.control(.next) } label: { Image(systemName: "forward.end.fill") }
                 .help("下一曲").accessibilityLabel("下一曲")
             Spacer()
-        }.buttonStyle(.borderless).disabled(!model.canControl)
+        }.buttonStyle(MenuActionStyle()).disabled(!model.canControl)
     }
 }
 
