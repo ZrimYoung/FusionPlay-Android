@@ -163,6 +163,13 @@ class _SettingsViewState extends State<SettingsView> {
                     enabled: !widget.state.nativeCast.busy,
                     onChanged: widget.onNativeCast!,
                   ),
+                  TextButton.icon(
+                    onPressed: widget.state.nativeCast.busy
+                        ? null
+                        : () => widget.onNativeCast!(false),
+                    icon: const Icon(Icons.settings_backup_restore_rounded),
+                    label: const Text('恢复原生投屏'),
+                  ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
                     child: Text(

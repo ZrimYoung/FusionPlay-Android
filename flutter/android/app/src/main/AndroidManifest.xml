@@ -12,6 +12,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.REORDER_TASKS" />
+    <!-- Granted once through ADB; used only for the vendor's reversible cast mode. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <queries>
         <package android:name="com.xiaomi.hyper_connect.tv" />
         <package android:name="moe.shizuku.privileged.api" />
@@ -28,6 +31,19 @@
         android:theme="@style/NormalTheme"
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config">
+        <service
+            android:name=".cast.NativeModeService"
+            android:exported="false"
+            android:process=":native_cast_settings" />
+        <receiver
+            android:name=".cast.NativeModeBootReceiver"
+            android:exported="false"
+            android:process=":native_cast_settings">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"

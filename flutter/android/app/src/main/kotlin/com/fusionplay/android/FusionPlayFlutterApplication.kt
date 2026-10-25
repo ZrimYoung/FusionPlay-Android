@@ -17,6 +17,12 @@ class FusionPlayFlutterApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        val processName = if (android.os.Build.VERSION.SDK_INT >= 28) getProcessName() else {
+            (getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager)
+                .runningAppProcesses?.firstOrNull { it.pid == android.os.Process.myPid() }?.processName
+        }
+        // The recovery process must not create a second receiver/runtime or bind itself.
+        if (processName == "$packageName:native_cast_settings") return
         AndroidPaths.initialize(this)
         diagnosticLogger = FusionPlayDiagnosticLogger()
         installCrashHandler()
@@ -32,6 +38,7 @@ class FusionPlayFlutterApplication : Application() {
     }
 
     override fun onTerminate() {
+        if (!::runtime.isInitialized) { super.onTerminate(); return }
         diagnosticLogger.write(
             component = "android_application",
             event = "lifecycle",

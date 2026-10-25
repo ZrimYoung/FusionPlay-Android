@@ -160,10 +160,17 @@ void main() {
       await tester.pump();
       expect(changes, [true]);
       expect(miPlayChanges, 0);
-      await tester.pumpWidget(screen(true));
-      await tester.tap(find.text('暂停原生投屏'));
+      await tester.ensureVisible(find.text('恢复原生投屏'));
+      await tester.tap(find.text('恢复原生投屏'));
       await tester.pump();
-      expect(changes, [true]);
+      expect(changes, [true, false]);
+      await tester.pumpWidget(screen(true));
+      await tester.ensureVisible(find.text('暂停原生投屏'));
+      await tester.tap(find.text('暂停原生投屏'));
+      await tester.ensureVisible(find.text('恢复原生投屏'));
+      await tester.tap(find.text('恢复原生投屏'));
+      await tester.pump();
+      expect(changes, [true, false]);
     },
   );
 
