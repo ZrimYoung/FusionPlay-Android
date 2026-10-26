@@ -526,6 +526,31 @@ impl Drop for Receiver {
     }
 }
 
+fn is_control_connection_error(value: &Value) -> bool {
+    value["event"] == "error"
+        && matches!(
+            value["code"].as_str(),
+            Some("miplay_control_session_failed" | "miplay_control_write_failed")
+        )
+}
+
+// Classify known parser failures without persisting packet bytes or arbitrary
+// exception text. This is a diagnostic hint, not an inferred root cause.
+fn control_error_hint(value: &Value) -> &'static str {
+    let message = value["message"].as_str().unwrap_or("");
+    if message.contains("invalid MiPlay control header") {
+        "invalid_control_header"
+    } else if message.contains("invalid MiPlay body length")
+        || message.contains("body is too large")
+    {
+        "invalid_body_length"
+    } else if message.contains("Broken pipe") {
+        "broken_pipe"
+    } else {
+        "unclassified"
+    }
+}
+
 fn reduce(state: &mut Snapshot, value: &Value) {
     let text = |key| value[key].as_str().unwrap_or("").to_owned();
     match value["event"].as_str().unwrap_or("") {
@@ -633,6 +658,11 @@ fn reduce(state: &mut Snapshot, value: &Value) {
         "progress" if state.controls_available => state.position_ms = value["position_ms"].as_u64(),
         "volume" => state.volume = value["percent"].as_u64().unwrap_or(50).min(100) as u32,
         "audio_output_ready" => state.output = text("device_name"),
+        // Discovery/control sockets are independent of the media stream. The
+        // SDK closes the failed connection while its listener keeps accepting.
+        // Do not infer that the active audio session ended from an unscoped
+        // control error; actual media-close/output events still govern it.
+        "error" if is_control_connection_error(value) => {}
         "host_error" | "error" => {
             clear_media(state);
             state.phase = Phase::Failed;
@@ -676,6 +706,24 @@ fn write_diagnostic(dir: &Path, event: &Value) {
         let _ = fs::rename(&path, dir.join("receiver.previous.jsonl"));
     }
     let mut record = serde_json::json!({"time_ms": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis(), "event": name});
+    if name == "error" || name == "host_error" {
+        let local = is_control_connection_error(event);
+        record["scope"] = if local {
+            "control_connection"
+        } else {
+            "receiver"
+        }
+        .into();
+        record["recovery"] = if local {
+            "keep_listening"
+        } else {
+            "restart_receiver"
+        }
+        .into();
+        if local {
+            record["reason_hint"] = control_error_hint(event).into();
+        }
+    }
     for key in [
         "queue_ms",
         "output_latency_ms",
@@ -709,6 +757,129 @@ fn write_diagnostic(dir: &Path, event: &Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires local LAN sockets; run explicitly with the app stopped"]
+    fn malformed_control_probe_keeps_live_listener_and_redacts_diagnostic() {
+        use std::net::TcpStream;
+        let root = std::env::temp_dir().join(format!("fusionplay-probe-{}", uuid::Uuid::new_v4()));
+        let r = Receiver::new(root.join("data").to_string_lossy().into()).unwrap();
+        let mut settings = r.settings();
+        settings.name = "FusionPlay-Mac-Diagnostic".into();
+        r.start(settings).unwrap();
+        for _ in 0..100 {
+            if r.snapshot().phase == Phase::Ready {
+                break;
+            }
+            thread::sleep(Duration::from_millis(30));
+        }
+        assert_eq!(r.snapshot().phase, Phase::Ready);
+        let generation = r.shared.generation.load(Ordering::Acquire);
+        let port = r.core.lock().unwrap().as_ref().unwrap().control_port();
+        let address: Ipv4Addr = r.snapshot().address.parse().unwrap();
+        {
+            let mut socket = TcpStream::connect((address, port)).unwrap();
+            socket.write_all(b"BADHEADER").unwrap();
+        }
+        let log = root.join("logs/receiver.jsonl");
+        let mut observed = None;
+        for _ in 0..100 {
+            observed = fs::read_to_string(&log)
+                .unwrap_or_default()
+                .lines()
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .find(|v| v["code"] == "miplay_control_session_failed");
+            if observed.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(30));
+        }
+        let diagnostic = observed.expect("expected the malformed probe to reach the real SDK");
+        assert_eq!(diagnostic["scope"], "control_connection");
+        assert_eq!(diagnostic["recovery"], "keep_listening");
+        assert_eq!(diagnostic["reason_hint"], "invalid_control_header");
+        assert!(diagnostic.get("message").is_none());
+        assert!(diagnostic.get("remote").is_none());
+        assert_eq!(r.snapshot().phase, Phase::Ready);
+        assert_eq!(r.shared.generation.load(Ordering::Acquire), generation);
+        // A subsequent connection must still be accepted on the same listener.
+        let mut next = TcpStream::connect((address, port)).unwrap();
+        next.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut greeting = [0u8; 1];
+        std::io::Read::read_exact(&mut next, &mut greeting).unwrap();
+        assert_eq!(greeting[0], b'$');
+        drop(next);
+        r.stop();
+        drop(r);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn control_connection_failures_do_not_restart_the_receiver_or_clear_playback() {
+        for phase in [
+            Phase::Ready,
+            Phase::Connected,
+            Phase::Playing,
+            Phase::Paused,
+        ] {
+            for code in [
+                "miplay_control_session_failed",
+                "miplay_control_write_failed",
+            ] {
+                let mut state = Snapshot {
+                    controls_available: phase != Phase::Ready,
+                    phase: phase.clone(),
+                    title: "Keep current track".into(),
+                    track_id: "current".into(),
+                    position_ms: Some(1234),
+                    ..Snapshot::default()
+                };
+                let before = state.clone();
+                reduce(
+                    &mut state,
+                    &serde_json::json!({"event":"error", "code":code,
+                    "message":"A single control connection failed"}),
+                );
+                assert_eq!(state, before, "{code} must not destroy {phase:?}");
+            }
+        }
+    }
+    #[test]
+    fn fatal_output_errors_still_fail_and_real_media_end_still_clears_playback() {
+        for code in [
+            "miplay_audio_output_failed",
+            "miplay_control_accept_failed",
+            "unknown_error",
+        ] {
+            let mut state = Snapshot {
+                phase: Phase::Playing,
+                controls_available: true,
+                title: "Track".into(),
+                ..Snapshot::default()
+            };
+            reduce(
+                &mut state,
+                &serde_json::json!({"event":"error", "code":code, "message":"failed"}),
+            );
+            assert_eq!(state.phase, Phase::Failed);
+            assert!(!state.controls_available);
+        }
+        let mut state = Snapshot {
+            phase: Phase::Playing,
+            controls_available: true,
+            title: "Track".into(),
+            ..Snapshot::default()
+        };
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"error", "code":"miplay_control_session_failed"}),
+        );
+        reduce(
+            &mut state,
+            &serde_json::json!({"event":"media_channel_closed"}),
+        );
+        assert_eq!(state.phase, Phase::Ready);
+        assert!(!state.controls_available);
+        assert!(state.title.is_empty());
+    }
     #[test]
     fn media_lifecycle_preserves_partial_updates_and_clears_old_tracks() {
         let mut state = Snapshot::default();
