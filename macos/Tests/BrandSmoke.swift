@@ -10,7 +10,7 @@ import AppKit
         assert(rep.colorAt(x: 512, y: 20)!.alphaComponent == 0)
         assert(rep.colorAt(x: 512, y: 512)!.alphaComponent > 0.99)
         assert(AppBrand.menuIcon.isTemplate)
-        assert(AppBrand.menuIcon.size == NSSize(width: 24, height: 18))
+        assert(AppBrand.menuIcon.size == NSSize(width: 20, height: 16))
         print("Dock tile: transparent margins, rounded corners, opaque interior PASS")
     }
 }

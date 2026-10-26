@@ -20,11 +20,11 @@ struct DoubleRingMark: Shape {
 
 enum AppBrand {
     static let menuIcon: NSImage = {
-        let image = NSImage(size: NSSize(width: 24, height: 18), flipped: true) { rect in
+        let image = NSImage(size: NSSize(width: 20, height: 16), flipped: true) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             context.addPath(DoubleRingMark().path(in: rect).cgPath)
             context.setStrokeColor(NSColor.black.cgColor)
-            context.setLineWidth(1.8)
+            context.setLineWidth(1.5)
             context.setLineCap(.butt)
             context.strokePath()
             return true
