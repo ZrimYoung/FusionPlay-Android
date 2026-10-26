@@ -602,7 +602,7 @@ void main() {
     },
   );
 
-  testWidgets('play pause uses explicit left and right focus targets', (
+  testWidgets('playback controls navigate both ways without skipping play pause', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -634,10 +634,17 @@ void main() {
     await tester.pump();
     expect(FocusManager.instance.primaryFocus?.debugLabel, 'player-previous');
 
-    playPause.requestFocus();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
+    expect(FocusManager.instance.primaryFocus?.debugLabel, 'player-play-pause');
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
     expect(FocusManager.instance.primaryFocus?.debugLabel, 'player-next');
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pump();
+    expect(FocusManager.instance.primaryFocus?.debugLabel, 'player-play-pause');
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pump();
+    expect(FocusManager.instance.primaryFocus?.debugLabel, 'player-previous');
   });
 }

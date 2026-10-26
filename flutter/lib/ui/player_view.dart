@@ -500,6 +500,7 @@ class _PlayerViewState extends State<PlayerView> {
                   ArtworkFlipDirection.right,
                 )
               : null,
+          rightFocusNode: _playPauseFocus,
           controlKey: const ValueKey('playback-previous-button'),
         ),
         SizedBox(width: gap),
@@ -540,6 +541,7 @@ class _PlayerViewState extends State<PlayerView> {
                   ArtworkFlipDirection.left,
                 )
               : null,
+          leftFocusNode: _playPauseFocus,
           controlKey: const ValueKey('playback-next-button'),
         ),
       ],
