@@ -32,8 +32,7 @@ android {
     defaultConfig {
         applicationId = providers.gradleProperty("fusionPlayApplicationId")
             .getOrElse("com.fusionplay.android")
-        resValue("string", "fusionplay_launcher_label",
-            if (applicationId == "com.fusionplay.android.portfix") "FusionPlay 修复版" else "FusionPlay")
+        resValue("string", "fusionplay_launcher_label", "FusionPlay")
         minSdk = maxOf(flutter.minSdkVersion, 24) // Shizuku API 13.1.5 requires Android 7.
         targetSdk = 36
         versionCode = flutter.versionCode

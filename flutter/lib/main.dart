@@ -99,6 +99,9 @@ class _FusionPlayHomeState extends State<FusionPlayHome> {
   final FocusNode _playerProgressFocus = FocusNode(
     debugLabel: 'player-progress',
   );
+  final FocusNode _playerPlayPauseFocus = FocusNode(
+    debugLabel: 'player-play-pause',
+  );
   final FocusNode _settingsInitialFocus = FocusNode(
     debugLabel: 'settings-miplay',
   );
@@ -112,6 +115,7 @@ class _FusionPlayHomeState extends State<FusionPlayHome> {
   @override
   void initState() {
     super.initState();
+    _focusPlayback();
     _requestedArtworkSource = _normalizedArtworkSource(
       widget.state.playback.coverArt,
     );
@@ -134,6 +138,9 @@ class _FusionPlayHomeState extends State<FusionPlayHome> {
   @override
   void didUpdateWidget(covariant FusionPlayHome oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!_hasPlayback(oldWidget.state) && _hasPlayback(widget.state)) {
+      _focusPlayback();
+    }
     final nextArtwork = _normalizedArtworkSource(
       widget.state.playback.coverArt,
     );
@@ -153,6 +160,7 @@ class _FusionPlayHomeState extends State<FusionPlayHome> {
     _artworkClearTimer?.cancel();
     _settingsButtonFocus.dispose();
     _playerProgressFocus.dispose();
+    _playerPlayPauseFocus.dispose();
     _settingsInitialFocus.dispose();
     super.dispose();
   }
@@ -195,6 +203,24 @@ class _FusionPlayHomeState extends State<FusionPlayHome> {
     return value == null || value.isEmpty ? null : value;
   }
 
+  void _focusPlayback() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !settingsOpen && _hasPlayback(widget.state)) {
+        _playerPlayPauseFocus.requestFocus();
+      }
+    });
+  }
+
+  bool _hasPlayback(AppState state) {
+    final playback = state.playback;
+    return playback.streamActive ||
+        (playback.protocol?.trim().isNotEmpty ?? false) ||
+        (playback.mediaUrl?.trim().isNotEmpty ?? false) ||
+        (playback.title?.trim().isNotEmpty ?? false) ||
+        (playback.artist?.trim().isNotEmpty ?? false) ||
+        playback.durationMs != null;
+  }
+
   void _openSettings() {
     setState(() => settingsOpen = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -205,7 +231,11 @@ class _FusionPlayHomeState extends State<FusionPlayHome> {
   void _closeSettings() {
     setState(() => settingsOpen = false);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _settingsButtonFocus.requestFocus();
+      if (!mounted || settingsOpen) return;
+      (_hasPlayback(widget.state)
+              ? _playerPlayPauseFocus
+              : _settingsButtonFocus)
+          .requestFocus();
     });
   }
 
@@ -230,14 +260,7 @@ class _FusionPlayHomeState extends State<FusionPlayHome> {
         state.settings.advancedEffectsEnabled && !mediaQuery.disableAnimations;
     final artwork = _displayedArtworkSource;
     final hasArtwork = artwork != null && artwork.isNotEmpty;
-    final playback = state.playback;
-    final hasPlayback =
-        playback.streamActive ||
-        (playback.protocol?.trim().isNotEmpty ?? false) ||
-        (playback.mediaUrl?.trim().isNotEmpty ?? false) ||
-        (playback.title?.trim().isNotEmpty ?? false) ||
-        (playback.artist?.trim().isNotEmpty ?? false) ||
-        playback.durationMs != null;
+    final hasPlayback = _hasPlayback(state);
     final settingsWidth = landscape
         ? (MediaQuery.sizeOf(context).height * 9 / 16).clamp(360.0, 480.0)
         : MediaQuery.sizeOf(context).width;
@@ -254,6 +277,7 @@ class _FusionPlayHomeState extends State<FusionPlayHome> {
                 artworkSource: artwork,
                 artworkIdentity: _displayedArtworkIdentity,
                 progressFocusNode: _playerProgressFocus,
+                playPauseFocusNode: _playerPlayPauseFocus,
                 settingsFocusNode: _settingsButtonFocus,
                 onPlayback: widget.controller.playback,
                 onSeek: widget.controller.seek,

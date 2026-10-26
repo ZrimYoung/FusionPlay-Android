@@ -24,6 +24,7 @@ class PlayerView extends StatefulWidget {
     this.artworkSource,
     this.artworkIdentity,
     this.progressFocusNode,
+    this.playPauseFocusNode,
     this.settingsFocusNode,
   });
   final AppState state;
@@ -33,6 +34,7 @@ class PlayerView extends StatefulWidget {
   final String? artworkSource;
   final String? artworkIdentity;
   final FocusNode? progressFocusNode;
+  final FocusNode? playPauseFocusNode;
   final FocusNode? settingsFocusNode;
 
   @override
@@ -44,7 +46,9 @@ class _PlayerViewState extends State<PlayerView> {
     debugLabel: 'player-progress',
   );
   final FocusNode _previousFocus = FocusNode(debugLabel: 'player-previous');
-  final FocusNode _playPauseFocus = FocusNode(debugLabel: 'player-play-pause');
+  final FocusNode _fallbackPlayPauseFocus = FocusNode(
+    debugLabel: 'player-play-pause',
+  );
   final FocusNode _nextFocus = FocusNode(debugLabel: 'player-next');
   final ValueNotifier<bool> _previousPressed = ValueNotifier(false);
   final ValueNotifier<bool> _playPausePressed = ValueNotifier(false);
@@ -61,6 +65,9 @@ class _PlayerViewState extends State<PlayerView> {
 
   FocusNode get _progressFocus =>
       widget.progressFocusNode ?? _fallbackProgressFocus;
+
+  FocusNode get _playPauseFocus =>
+      widget.playPauseFocusNode ?? _fallbackPlayPauseFocus;
 
   @override
   void initState() {
@@ -202,7 +209,7 @@ class _PlayerViewState extends State<PlayerView> {
     artworkFlipDirectionTimer?.cancel();
     _fallbackProgressFocus.dispose();
     _previousFocus.dispose();
-    _playPauseFocus.dispose();
+    _fallbackPlayPauseFocus.dispose();
     _nextFocus.dispose();
     _previousPressed.dispose();
     _playPausePressed.dispose();

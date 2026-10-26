@@ -394,6 +394,89 @@ void main() {
     expect(panel.right, lessThan(0));
   });
 
+  for (final startIdle in [false, true]) {
+    testWidgets('playback defaults to play pause (start idle: $startIdle)', (
+      tester,
+    ) async {
+      final controller = NativeAppController();
+      addTearDown(controller.dispose);
+      tester.view.physicalSize = const Size(1200, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      const idle = AppState(initialized: true);
+      const playing = AppState(
+        initialized: true,
+        remoteControl: RemoteControlState(
+          available: true,
+          commands: {'seek', 'play_pause'},
+        ),
+        playback: PlaybackSnapshot(
+          title: 'Track',
+          protocol: 'MiPlay',
+          durationMs: 180000,
+          streamActive: true,
+        ),
+      );
+      Widget screen(AppState state) => MaterialApp(
+        home: FusionPlayHome(controller: controller, state: state),
+      );
+      if (startIdle) {
+        await tester.pumpWidget(screen(idle));
+        await tester.pumpAndSettle();
+      }
+      await tester.pumpWidget(screen(playing));
+      await tester.pumpAndSettle();
+      expect(
+        FocusManager.instance.primaryFocus?.debugLabel,
+        'player-play-pause',
+      );
+
+      // Position and metadata updates must not steal a user's chosen focus.
+      final progress = FocusManager.instance.rootScope.descendants.singleWhere(
+        (node) => node.debugLabel == 'player-progress',
+      );
+      progress.requestFocus();
+      await tester.pump();
+      await tester.pumpWidget(
+        screen(
+          const AppState(
+            initialized: true,
+            remoteControl: RemoteControlState(
+              available: true,
+              commands: {'seek', 'play_pause'},
+            ),
+            playback: PlaybackSnapshot(
+              title: 'Track',
+              protocol: 'MiPlay',
+              durationMs: 180000,
+              positionMs: 5000,
+              streamActive: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(progress.hasPrimaryFocus, isTrue);
+
+      // A new casting session arriving in settings must leave settings usable.
+      await tester.sendKeyEvent(LogicalKeyboardKey.contextMenu);
+      await tester.pumpAndSettle();
+      final settingsFocus = FocusManager.instance.primaryFocus;
+      expect(settingsFocus?.debugLabel, 'settings-miplay');
+      await tester.pumpWidget(screen(idle));
+      await tester.pumpWidget(screen(playing));
+      await tester.pumpAndSettle();
+      expect(FocusManager.instance.primaryFocus, same(settingsFocus));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(
+        FocusManager.instance.primaryFocus?.debugLabel,
+        'player-play-pause',
+      );
+    });
+  }
+
   testWidgets('player focus follows settings progress and play pause space', (
     tester,
   ) async {

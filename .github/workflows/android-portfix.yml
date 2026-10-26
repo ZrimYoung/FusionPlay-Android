@@ -80,12 +80,12 @@ jobs:
 
       # Device testing on 32-bit TVs uses precompiled Dart. The debug build
       # exhibited an input-dispatch ANR during Flutter semantics updates.
-      - name: Build playback screen-on APK
+      - name: Build TV focus APK
         working-directory: flutter
         run: |
           flutter --no-version-check build apk --profile --no-pub \
-            --build-name=1.2.4-stopfix --build-number=10214 \
-            --dart-define=FUSIONPLAY_VERSION=1.2.4-stopfix
+            --build-name=1.2.4-tvfocus --build-number=10215 \
+            --dart-define=FUSIONPLAY_VERSION=1.2.4-tvfocus
 
       - name: Test Kotlin backend
         working-directory: flutter/android
@@ -94,7 +94,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FusionPlay-1.2.4-stopfix-profile
+          name: FusionPlay-1.2.4-tvfocus-profile
           path: flutter/build/app/outputs/flutter-apk/app-profile.apk
           if-no-files-found: error
           retention-days: 30
