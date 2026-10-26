@@ -21,6 +21,7 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+mod network_identity;
 uniffi::setup_scaffolding!();
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -467,6 +468,7 @@ impl Receiver {
             });
         }
         let identity = load_identity(&self.data)?;
+        let hardware_address = network_identity::interface_hardware_address(&interface.name);
         let config = ReceiverConfig::new(
             settings.name.trim(),
             ReceiverIdentity::new(identity.idm, identity.lyra, identity.media),
@@ -479,7 +481,8 @@ impl Receiver {
         .with_output_device(
             (!settings.output_device.is_empty()).then(|| settings.output_device.clone()),
         )
-        .with_initial_volume_percent(settings.volume);
+        .with_initial_volume_percent(settings.volume)
+        .with_hardware_address(hardware_address);
         save_json(&self.data.join("settings.json"), &settings)?;
         *self.settings.lock().unwrap() = settings;
         self.shared.state.lock().unwrap().phase = Phase::Starting;

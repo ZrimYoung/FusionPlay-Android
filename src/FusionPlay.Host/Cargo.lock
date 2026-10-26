@@ -629,6 +629,7 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "fusionplay-miplay-sdk",
+ "getifs",
  "if-addrs",
  "libc",
  "serde",
