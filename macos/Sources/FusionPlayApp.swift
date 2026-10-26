@@ -86,7 +86,7 @@ struct ReceiverPanel: View {
             PlaybackControls(model: model)
             HStack(spacing: 10) {
                 Image(systemName: "speaker.fill").font(.system(size: 10))
-                Slider(value: $model.volume, in: 0...100) { editing in if !editing { model.setVolume() } }
+                Slider(value: $model.volume, in: 0...100) { editing in model.volumeEditingChanged(editing) }
                     .controlSize(.small).accessibilityLabel("接收音量")
                     .accessibilityValue("\(Int(model.volume.rounded()))%")
                 Image(systemName: "speaker.wave.3.fill").font(.system(size: 11))
@@ -212,7 +212,7 @@ struct PlayerView: View {
                 }.padding(.vertical, 19)
                 HStack(spacing: 12) {
                     Image(systemName: "speaker.fill").font(.system(size: 11))
-                    Slider(value: $model.volume, in: 0...100) { editing in if !editing { model.setVolume() } }
+                    Slider(value: $model.volume, in: 0...100) { editing in model.volumeEditingChanged(editing) }
                         .controlSize(.small).tint(.white).accessibilityLabel("接收音量")
                         .accessibilityValue("\(Int(model.volume.rounded()))%")
                     Image(systemName: "speaker.wave.3.fill").font(.system(size: 12))

@@ -16,7 +16,12 @@ final class ReceiverModel: ObservableObject {
     @Published var name = "FusionPlay-Mac"
     @Published var interfaceName = ""
     @Published var outputDevice = ""
-    @Published var volume = 50.0
+    @Published private var volumeInteraction = VolumeInteraction()
+    var volume: Double {
+        get { volumeInteraction.value }
+        set { volumeInteraction.edit(newValue) }
+    }
+    private var volumeAckTask: Task<Void, Never>?
     @Published var networks: [NetworkInterface] = []
     @Published var outputs: [AudioDevice] = []
     @Published var error = ""
@@ -61,7 +66,8 @@ final class ReceiverModel: ObservableObject {
                     guard let self, !self.terminating else { return }
                     self.receiver = receiver
                     self.name = settings.name; self.interfaceName = settings.interfaceName
-                    self.outputDevice = settings.outputDevice; self.volume = Double(settings.volume)
+                    self.outputDevice = settings.outputDevice
+                    self.volumeInteraction.observe(Double(settings.volume))
                     self.networks = networks; self.outputs = outputs
                     self.snapshot = receiver.snapshot()
                     let listener = ReceiverEvents(self); self.listener = listener
@@ -103,7 +109,8 @@ final class ReceiverModel: ObservableObject {
     }
     func accept(_ state: Snapshot) {
         guard !terminating else { return }
-        snapshot = state; volume = Double(state.volume)
+        snapshot = state
+        volumeInteraction.observe(Double(state.volume))
         if !state.controlsAvailable { controlMessage = "" }
         updateArtwork(state)
         if busy || sleeping { systemMedia.clear() }
@@ -241,13 +248,33 @@ final class ReceiverModel: ObservableObject {
             DispatchQueue.main.async { [weak self] in self?.busy = false; self?.accept(state) }
         }
     }
+    func volumeEditingChanged(_ editing: Bool) {
+        if editing { volumeInteraction.beginEditing() }
+        else { setVolume() }
+    }
     func setVolume() {
         guard let receiver else { return }
-        volume = volume.rounded()
-        let value = UInt32(volume)
+        volumeAckTask?.cancel()
+        let submission = volumeInteraction.submit()
         backend.async { [weak self] in
-            do { try receiver.setVolume(volume: value) }
-            catch { DispatchQueue.main.async { [weak self] in self?.error = String(describing: error) } }
+            do {
+                try receiver.setVolume(volume: submission.value)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !self.terminating,
+                          self.volumeInteraction.complete(submission.token, succeeded: true) else { return }
+                    self.appliedSettings?.volume = submission.value
+                    self.volumeAckTask = Task { [weak self] in
+                        do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+                        self?.volumeInteraction.expire(submission.token)
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !self.terminating,
+                          self.volumeInteraction.complete(submission.token, succeeded: false) else { return }
+                    self.error = "设置音量失败：\(error)"
+                }
+            }
         }
     }
     func refreshDevices() {
@@ -285,7 +312,7 @@ final class ReceiverModel: ObservableObject {
     }
     func openLogs() { NSWorkspace.shared.open(root.appendingPathComponent("logs")) }
     func terminate(completion: @escaping @MainActor @Sendable () -> Void) {
-        terminating = true; artworkTask?.cancel(); systemMedia.shutdown()
+        terminating = true; artworkTask?.cancel(); volumeAckTask?.cancel(); systemMedia.shutdown()
         timer?.invalidate(); timer = nil; wantsReceiving = false
         // AppKit must receive the termination reply after terminateLater returns,
         // including when startup failed before a receiver was constructed.

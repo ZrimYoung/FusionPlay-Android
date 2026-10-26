@@ -33,6 +33,8 @@ jobs:
         run: bash macos/scripts/test-artwork.sh
       - name: Test Dock tile and menu icon
         run: bash macos/scripts/test-brand.sh
+      - name: Test volume interaction and feedback ordering
+        run: bash macos/scripts/test-volume.sh
       - name: Archive app
         id: package
         shell: bash
